@@ -203,23 +203,6 @@ document.addEventListener("DOMContentLoaded", () => {
         </tr>
       </table>
     </div>
-    <div style="font-weight: 700; color: #111; margin-bottom: 12px; font-size: 14px;">
-      ✨ 에듀버와 함께 시작하는 즐거운 학교 생활
-    </div>
-    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 28px;">
-      <div style="background: #ffffff; border: 1px solid #edf0f2; border-radius: 8px; padding: 12px 16px;">
-        <strong style="color: #03c75a;">✉️ 에듀버 메일:</strong> 선생님, 친구들과 안전하고 편리하게 메일을 주고받으세요.
-      </div>
-      <div style="background: #ffffff; border: 1px solid #edf0f2; border-radius: 8px; padding: 12px 16px;">
-        <strong style="color: #03c75a;">☕ 에듀버 카페:</strong> 우리 반, 동아리 커뮤니티에서 친구들과 자유롭게 소통하세요.
-      </div>
-      <div style="background: #ffffff; border: 1px solid #edf0f2; border-radius: 8px; padding: 12px 16px;">
-        <strong style="color: #03c75a;">📝 에듀버 블로그:</strong> 배운 내용과 일상을 나만의 공간에 차곡차곡 기록해 보세요.
-      </div>
-      <div style="background: #ffffff; border: 1px solid #edf0f2; border-radius: 8px; padding: 12px 16px;">
-        <strong style="color: #03c75a;">📅 에듀버 캘린더:</strong> 중요한 학사일정과 과제 일정을 놓치지 마세요.
-      </div>
-    </div>
   </div>
   <div style="background: #f8f9fa; border-top: 1px solid #edf0f2; padding: 20px 30px; font-size: 12px; color: #888; text-align: center; line-height: 1.6;">
     본 메일은 에듀버(EDUNAVER) 회원가입 시 자동 발송되는 발신전용 안내 메일입니다.<br>
