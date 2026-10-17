@@ -164,6 +164,82 @@ document.addEventListener("DOMContentLoaded", () => {
             });
 
             if (response.ok) {
+                // 에듀버 회원가입 환영 메일 자동 발송
+                try {
+                    const welcomeMailData = {
+                        sender: "에듀버 <admin@eduver.com>",
+                        recipient: `${usernameVal}@eduver.com`,
+                        subject: `[에듀버] ${nameVal}님, 에듀버에 오신 것을 진심으로 환영합니다! 🎉`,
+                        body: `
+<div style="font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif; max-width: 620px; margin: 0 auto; background: #ffffff; border: 1px solid #e1e3e8; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 16px rgba(0,0,0,0.06);">
+  <div style="background: linear-gradient(135deg, #03c75a 0%, #00a843 100%); padding: 36px 30px; text-align: center; color: #ffffff;">
+    <div style="font-size: 26px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px;">EDUNAVER</div>
+    <h1 style="font-size: 20px; font-weight: 700; margin: 0; line-height: 1.4;">${nameVal}님, 에듀버 회원이 되신 것을 환영합니다! 🎉</h1>
+  </div>
+  <div style="padding: 32px 30px; color: #333333; line-height: 1.7; font-size: 14px;">
+    <p style="margin: 0 0 16px 0; font-size: 15px;">
+      안녕하세요, <strong>${nameVal}</strong>님!<br>
+      스마트 교육 포털 <strong>에듀버(EDUNAVER)</strong>에 오신 것을 진심으로 환영합니다.
+    </p>
+    <p style="margin: 0 0 24px 0; color: #555555;">
+      새롭게 생성된 <strong>${usernameVal}@eduver.com</strong> 계정으로 에듀버의 메일, 카페, 블로그, 캘린더 등 모든 서비스를 편리하게 이용하실 수 있습니다.
+    </p>
+    <div style="background: #f7f9fa; border: 1px solid #e9ecef; border-radius: 8px; padding: 20px 24px; margin-bottom: 26px;">
+      <div style="font-weight: 700; color: #111; margin-bottom: 12px; font-size: 14px; border-bottom: 1px solid #e2e5e8; padding-bottom: 8px;">
+        📌 가입 계정 정보
+      </div>
+      <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+        <tr>
+          <td style="padding: 6px 0; color: #777; width: 100px;">이름</td>
+          <td style="padding: 6px 0; font-weight: 600; color: #222;">${nameVal}</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 0; color: #777;">아이디</td>
+          <td style="padding: 6px 0; font-weight: 600; color: #222;">${usernameVal}</td>
+        </tr>
+        <tr>
+          <td style="padding: 6px 0; color: #777;">에듀버 메일</td>
+          <td style="padding: 6px 0; font-weight: 600; color: #03c75a;">${usernameVal}@eduver.com</td>
+        </tr>
+      </table>
+    </div>
+    <div style="font-weight: 700; color: #111; margin-bottom: 12px; font-size: 14px;">
+      ✨ 에듀버와 함께 시작하는 즐거운 학교 생활
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 28px;">
+      <div style="background: #ffffff; border: 1px solid #edf0f2; border-radius: 8px; padding: 12px 16px;">
+        <strong style="color: #03c75a;">✉️ 에듀버 메일:</strong> 선생님, 친구들과 안전하고 편리하게 메일을 주고받으세요.
+      </div>
+      <div style="background: #ffffff; border: 1px solid #edf0f2; border-radius: 8px; padding: 12px 16px;">
+        <strong style="color: #03c75a;">☕ 에듀버 카페:</strong> 우리 반, 동아리 커뮤니티에서 친구들과 자유롭게 소통하세요.
+      </div>
+      <div style="background: #ffffff; border: 1px solid #edf0f2; border-radius: 8px; padding: 12px 16px;">
+        <strong style="color: #03c75a;">📝 에듀버 블로그:</strong> 배운 내용과 일상을 나만의 공간에 차곡차곡 기록해 보세요.
+      </div>
+      <div style="background: #ffffff; border: 1px solid #edf0f2; border-radius: 8px; padding: 12px 16px;">
+        <strong style="color: #03c75a;">📅 에듀버 캘린더:</strong> 중요한 학사일정과 과제 일정을 놓치지 마세요.
+      </div>
+    </div>
+  </div>
+  <div style="background: #f8f9fa; border-top: 1px solid #edf0f2; padding: 20px 30px; font-size: 12px; color: #888; text-align: center; line-height: 1.6;">
+    본 메일은 에듀버(EDUNAVER) 회원가입 시 자동 발송되는 발신전용 안내 메일입니다.<br>
+    문의사항은 <a href="mailto:help@eduver.com" style="color: #03c75a; text-decoration: none;">에듀버 고객센터(help@eduver.com)</a>로 문의해 주시기 바랍니다.<br>
+    © EDUNAVER Corp. All rights reserved.
+  </div>
+</div>
+                        `.trim(),
+                        is_read: false
+                    };
+
+                    await fetch("https://pb.joyfamkr.synology.me/api/collections/mails/records", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(welcomeMailData)
+                    });
+                } catch (welcomeErr) {
+                    console.warn("환영 메일 자동 발송 실패 (계속 진행):", welcomeErr);
+                }
+
                 showToast("회원가입이 완료되었습니다! 로그인 페이지로 이동합니다.");
                 setTimeout(() => {
                     window.location.href = "index.html";
