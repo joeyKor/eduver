@@ -376,6 +376,13 @@
                                 </div>
                             </div>
                         </div>
+                        <!-- File Attachments in Detail View -->
+                        <div class="detail-attachments-box" id="detail-attachments-box" style="display: none;">
+                            <div class="detail-attach-header">
+                                <span class="detail-attach-title"><i class="fa-solid fa-paperclip"></i> 첨부파일 <strong id="detail-attach-count">0</strong>개 (<span id="detail-attach-total-size">0KB</span>)</span>
+                            </div>
+                            <div class="detail-attach-list" id="detail-attach-list"></div>
+                        </div>
                         <div id="detail-body" class="detail-body-content">
                             본문 내용
                         </div>
@@ -454,17 +461,18 @@
                                 <div class="file-attach-container">
                                     <div class="file-attach-header">
                                         <div class="attach-tabs">
-                                            <button class="attach-tab active">내 PC</button>
-                                            <button class="attach-tab">MYBOX</button>
+                                            <button type="button" class="attach-tab active" id="btn-attach-my-pc">내 PC</button>
+                                            <button type="button" class="attach-tab">MYBOX</button>
                                         </div>
                                         <div class="attach-info">
-                                            <span>일반 0KB/10MB | 대용량 0KB/2.00GBx10개</span>
+                                            <span id="attach-limit-info">일반 0KB/10MB | 전체 0KB/30MB</span>
                                         </div>
                                     </div>
-                                    <div class="file-drop-zone">
+                                    <div class="file-drop-zone" id="file-drop-zone">
                                         <i class="fa-solid fa-plus drop-icon"></i>
-                                        <span>파일을 마우스로 끌어 오세요</span>
+                                        <span id="file-drop-label">파일을 마우스로 끌어 오거나 클릭하여 첨부하세요 (개별 10MB, 총 30MB)</span>
                                     </div>
+                                    <div class="attached-files-list" id="attached-files-list" style="display: none;"></div>
                                 </div>
                             </div>
 

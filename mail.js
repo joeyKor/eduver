@@ -168,6 +168,129 @@ document.addEventListener("DOMContentLoaded", () => {
     const composerSendBtn = document.getElementById("composer-send-btn");
     const composerCancelBtn = document.getElementById("composer-cancel-btn");
 
+    // File attachments state & constants (개별 10MB, 총합 30MB)
+    const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+    const MAX_TOTAL_SIZE = 30 * 1024 * 1024; // 30MB
+    let attachedMailFiles = [];
+
+    const formatFileSize = (bytes) => {
+        if (!bytes || bytes <= 0) return "0KB";
+        if (bytes < 1024 * 1024) {
+            return `${(bytes / 1024).toFixed(1)}KB`;
+        }
+        return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+    };
+
+    const getFileIconInfo = (filename) => {
+        const ext = ((filename || '').split('.').pop() || '').toLowerCase();
+        switch (ext) {
+            case 'zip':
+            case 'rar':
+            case '7z':
+            case 'tar':
+            case 'gz':
+                return { icon: 'fa-solid fa-file-zipper', color: '#b5835a', bg: '#f5ece5' };
+            case 'pdf':
+                return { icon: 'fa-solid fa-file-pdf', color: '#e03131', bg: '#ffe3e3' };
+            case 'xls':
+            case 'xlsx':
+            case 'csv':
+                return { icon: 'fa-solid fa-file-excel', color: '#099268', bg: '#e6fcf5' };
+            case 'doc':
+            case 'docx':
+            case 'hwp':
+            case 'hwpx':
+                return { icon: 'fa-solid fa-file-word', color: '#1971c2', bg: '#e7f5ff' };
+            case 'ppt':
+            case 'pptx':
+                return { icon: 'fa-solid fa-file-powerpoint', color: '#f76707', bg: '#fff4e6' };
+            case 'jpg':
+            case 'jpeg':
+            case 'png':
+            case 'gif':
+            case 'webp':
+            case 'svg':
+                return { icon: 'fa-solid fa-file-image', color: '#ae3ec9', bg: '#f8f0fc' };
+            default:
+                return { icon: 'fa-solid fa-file-lines', color: '#495057', bg: '#f1f3f5' };
+        }
+    };
+
+    const updateAttachedFilesUI = () => {
+        const listContainer = document.getElementById("attached-files-list");
+        const dropLabel = document.getElementById("file-drop-label");
+        const limitInfo = document.getElementById("attach-limit-info");
+        const totalSize = attachedMailFiles.reduce((acc, f) => acc + f.size, 0);
+
+        if (limitInfo) {
+            limitInfo.textContent = `첨부 ${formatFileSize(totalSize)}/10MB | 전체 ${formatFileSize(totalSize)}/30MB`;
+        }
+
+        if (!listContainer) return;
+
+        if (attachedMailFiles.length === 0) {
+            listContainer.style.display = "none";
+            listContainer.innerHTML = "";
+            if (dropLabel) dropLabel.textContent = "파일을 마우스로 끌어 오거나 클릭하여 첨부하세요 (개별 10MB, 총 30MB)";
+            return;
+        }
+
+        listContainer.style.display = "flex";
+        if (dropLabel) dropLabel.textContent = `${attachedMailFiles.length}개 파일 첨부됨 (클릭하거나 파일을 끌어서 추가)`;
+
+        listContainer.innerHTML = attachedMailFiles.map((f, idx) => {
+            const iconInfo = getFileIconInfo(f.name);
+            return `
+                <div class="attached-file-item" data-index="${idx}">
+                    <div class="attached-file-info">
+                        <div class="detail-attach-badge" style="background-color: ${iconInfo.bg}; color: ${iconInfo.color}; width: 24px; height: 24px; font-size: 12px;">
+                            <i class="${iconInfo.icon}"></i>
+                        </div>
+                        <span class="attached-file-name" title="${f.name}">${f.name}</span>
+                        <span class="attached-file-size" style="color: #8b95a1; font-size: 12px; margin-left: 6px;">${formatFileSize(f.size)}</span>
+                    </div>
+                    <button type="button" class="btn-remove-file" data-index="${idx}" title="첨부 삭제">
+                        <i class="fa-solid fa-xmark"></i>
+                    </button>
+                </div>
+            `;
+        }).join("");
+
+        listContainer.querySelectorAll(".btn-remove-file").forEach(btn => {
+            btn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const idx = parseInt(btn.getAttribute("data-index"), 10);
+                if (!isNaN(idx)) {
+                    attachedMailFiles.splice(idx, 1);
+                    updateAttachedFilesUI();
+                }
+            });
+        });
+    };
+
+    const addMailFiles = (files) => {
+        if (!files || files.length === 0) return;
+        let currentTotal = attachedMailFiles.reduce((acc, f) => acc + f.size, 0);
+
+        for (const file of Array.from(files)) {
+            if (file.size > MAX_FILE_SIZE) {
+                alert(`'${file.name}' 파일의 크기(${formatFileSize(file.size)})가 개별 파일 제한인 10MB를 초과하여 첨부할 수 없습니다.`);
+                continue;
+            }
+            if (currentTotal + file.size > MAX_TOTAL_SIZE) {
+                alert(`총 첨부 용량이 30MB를 초과하여 '${file.name}' 파일을 추가할 수 없습니다. (현재: ${formatFileSize(currentTotal)})`);
+                break;
+            }
+            const isDuplicate = attachedMailFiles.some(f => f.name === file.name && f.size === file.size);
+            if (isDuplicate) {
+                continue;
+            }
+            attachedMailFiles.push(file);
+            currentTotal += file.size;
+        }
+        updateAttachedFilesUI();
+    };
+
     // Celebration screen
     const celebrationScreen = document.getElementById("celebration-screen");
     const celebrationCloseBtn = document.getElementById("celebration-close-btn");
@@ -430,24 +553,66 @@ document.addEventListener("DOMContentLoaded", () => {
                 return;
             }
 
+            const originalBtnHtml = composerSendBtn.innerHTML;
             try {
-                const mailData = {
-                    sender: currentUserEmail,
-                    recipient: toVal,
-                    subject: subjectVal,
-                    body: bodyVal,
-                    is_read: false
-                };
+                composerSendBtn.disabled = true;
+                composerSendBtn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 파일 업로드 및 발송 중...';
 
-                const response = await fetch(`${POCKETBASE_URL}/api/collections/mails/records`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(mailData)
-                });
+                let response;
 
-                if (!response.ok) throw new Error("Failed to send mail");
+                // When files are attached, send as multipart/form-data for PocketBase File field
+                if (attachedMailFiles && attachedMailFiles.length > 0) {
+                    const formData = new FormData();
+                    formData.append('sender', currentUserEmail);
+                    formData.append('recipient', toVal);
+                    formData.append('subject', subjectVal);
 
-                // Immediately reset composer form content
+                    // Preserve original file names and byte sizes accurately
+                    const metaList = attachedMailFiles.map(f => ({
+                        name: f.name,
+                        size: f.size,
+                        type: f.type || 'application/octet-stream'
+                    }));
+                    const bodyWithMeta = bodyVal +
+                        `\n<!-- EDUVER_ATTACH_META_START -->` +
+                        `<script type="application/json" class="eduver-attach-meta">${encodeURIComponent(JSON.stringify(metaList))}</script>` +
+                        `<!-- EDUVER_ATTACH_META_END -->`;
+
+                    formData.append('body', bodyWithMeta);
+                    formData.append('is_read', 'false');
+
+                    // Append each file to the 'attachments' field
+                    attachedMailFiles.forEach(file => {
+                        formData.append('attachments', file);
+                    });
+
+                    response = await fetch(`${POCKETBASE_URL}/api/collections/mails/records`, {
+                        method: 'POST',
+                        body: formData // Browser sets multipart boundary automatically
+                    });
+                } else {
+                    const mailData = {
+                        sender: currentUserEmail,
+                        recipient: toVal,
+                        subject: subjectVal,
+                        body: bodyVal,
+                        is_read: false
+                    };
+
+                    response = await fetch(`${POCKETBASE_URL}/api/collections/mails/records`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(mailData)
+                    });
+                }
+
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({}));
+                    console.error("PocketBase send error response:", errorData);
+                    throw new Error("Failed to send mail");
+                }
+
+                // Immediately reset composer form content and files
                 resetComposerForm();
 
                 if (celebrationScreen) {
@@ -455,7 +620,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 }
             } catch (err) {
                 console.error("Error sending mail:", err);
-                alert("메일 발송에 실패했습니다. 포켓베이스 서버 상태를 확인해 주세요.");
+                alert("메일 발송에 실패했습니다. 포켓베이스 필드 설정 또는 파일 용량을 확인해 주세요.");
+            } finally {
+                composerSendBtn.disabled = false;
+                composerSendBtn.innerHTML = originalBtnHtml;
             }
         });
     }
@@ -541,6 +709,10 @@ document.addEventListener("DOMContentLoaded", () => {
         if (edColorBg) edColorBg.value = "#ffffff";
         const markerIcon = document.querySelector(".bg-color-label i");
         if (markerIcon) markerIcon.style.color = "#555";
+
+        // Reset attached files
+        attachedMailFiles = [];
+        updateAttachedFilesUI();
     };
 
     // ----------------------------------------------------
@@ -982,6 +1154,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     const fileDropZone = document.querySelector(".file-drop-zone");
+    const btnAttachMyPc = document.getElementById("btn-attach-my-pc");
     if (fileDropZone) {
         // Create hidden input element
         const hiddenFileInput = document.createElement("input");
@@ -994,13 +1167,39 @@ document.addEventListener("DOMContentLoaded", () => {
             hiddenFileInput.click();
         });
 
+        if (btnAttachMyPc) {
+            btnAttachMyPc.addEventListener("click", (e) => {
+                e.preventDefault();
+                hiddenFileInput.click();
+            });
+        }
+
         hiddenFileInput.addEventListener("change", () => {
-            if (hiddenFileInput.files.length > 0) {
-                const fileNames = Array.from(hiddenFileInput.files).map(f => f.name).join(", ");
-                const label = fileDropZone.querySelector("span");
-                if (label) {
-                    label.textContent = `첨부된 파일: ${fileNames}`;
-                }
+            if (hiddenFileInput.files && hiddenFileInput.files.length > 0) {
+                addMailFiles(hiddenFileInput.files);
+                hiddenFileInput.value = "";
+            }
+        });
+
+        // Drag and drop events
+        fileDropZone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            fileDropZone.classList.add("dragover");
+        });
+
+        fileDropZone.addEventListener("dragleave", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            fileDropZone.classList.remove("dragover");
+        });
+
+        fileDropZone.addEventListener("drop", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            fileDropZone.classList.remove("dragover");
+            if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+                addMailFiles(e.dataTransfer.files);
             }
         });
     }
@@ -1190,9 +1389,149 @@ document.addEventListener("DOMContentLoaded", () => {
                 detailTime.textContent = formatKoreanDate(email.created);
             }
 
+            let cleanBody = email.body || "";
+            let attachments = [];
+            let metaAttachments = [];
+
+            // 1. Parse original attachment metadata if present
+            const metaMatch = cleanBody.match(/class="eduver-attach-meta">([^<]+)<\/script>/);
+            if (metaMatch && metaMatch[1]) {
+                try {
+                    metaAttachments = JSON.parse(decodeURIComponent(metaMatch[1]));
+                } catch (e) {
+                    console.error("Failed to parse attach meta:", e);
+                }
+                cleanBody = cleanBody.replace(/<!-- EDUVER_ATTACH_META_START -->[\s\S]*?<!-- EDUVER_ATTACH_META_END -->/g, "")
+                                     .replace(/<script[^>]*class="eduver-attach-meta"[\s\S]*?<\/script>/g, "");
+            }
+
+            // Fallback for older inline data attachments
+            const attachMatch = cleanBody.match(/class="eduver-mail-attachments-data"[^>]*data-attachments="([^"]+)"/);
+            if (attachMatch && attachMatch[1]) {
+                try {
+                    attachments = JSON.parse(decodeURIComponent(attachMatch[1]));
+                } catch(e) {
+                    console.error("Failed to parse legacy attachments:", e);
+                }
+                cleanBody = cleanBody.replace(/<!-- EDUVER_ATTACHMENTS_START -->[\s\S]*?<!-- EDUVER_ATTACHMENTS_END -->/g, "")
+                                     .replace(/<div class="eduver-mail-attachments-data"[\s\S]*?<\/div>/g, "");
+            }
+
+            // 2. PocketBase default file field support (Mapped with exact original names & sizes)
+            const pbFiles = Array.isArray(email.attachments) ? email.attachments : (email.attachments ? [email.attachments] : []);
+            pbFiles.forEach((fname, idx) => {
+                const meta = metaAttachments[idx] || {};
+                const displayName = meta.name || fname.replace(/_[a-zA-Z0-9]{10}(\.[^.]+)$/, '$1');
+                const fileSize = meta.size || null;
+
+                if (!attachments.some(a => a.originalFileName === fname || a.name === displayName)) {
+                    attachments.push({
+                        name: displayName,
+                        originalFileName: fname,
+                        size: fileSize,
+                        url: `${POCKETBASE_URL}/api/files/${email.collectionId || 'mails'}/${email.id}/${fname}?download=1`
+                    });
+                }
+            });
+
             const detailBody = document.getElementById("detail-body");
             if (detailBody) {
-                detailBody.innerHTML = email.body || "";
+                detailBody.innerHTML = cleanBody;
+            }
+
+            // Render Attachments in Detail View (Naver Mail Style)
+            const detailAttachBox = document.getElementById("detail-attachments-box");
+            const detailAttachCount = document.getElementById("detail-attach-count");
+            const detailAttachTotalSize = document.getElementById("detail-attach-total-size");
+            const detailAttachList = document.getElementById("detail-attach-list");
+
+            if (detailAttachBox) {
+                if (attachments && attachments.length > 0) {
+                    detailAttachBox.style.display = "block";
+                    if (detailAttachCount) detailAttachCount.textContent = attachments.length;
+                    const totalAttachBytes = attachments.reduce((acc, a) => acc + (a.size || 0), 0);
+                    if (detailAttachTotalSize) {
+                        detailAttachTotalSize.textContent = totalAttachBytes > 0 ? formatFileSize(totalAttachBytes) : `${attachments.length}개 파일`;
+                    }
+
+                    if (detailAttachList) {
+                        detailAttachList.innerHTML = attachments.map((att, idx) => {
+                            const iconInfo = getFileIconInfo(att.name);
+                            const sizeText = att.size ? formatFileSize(att.size) : '';
+                            return `
+                                <div class="detail-attach-item">
+                                    <div class="detail-attach-left">
+                                        <div class="detail-attach-badge" style="background-color: ${iconInfo.bg}; color: ${iconInfo.color};">
+                                            <i class="${iconInfo.icon}"></i>
+                                        </div>
+                                        <span class="detail-attach-name" title="${att.name}">${att.name}</span>
+                                        ${sizeText ? `<span class="detail-attach-size">${sizeText}</span>` : ''}
+                                    </div>
+                                    <div class="detail-attach-actions">
+                                        <button type="button" class="btn-attach-download" data-index="${idx}">
+                                            <i class="fa-solid fa-download"></i> PC 저장
+                                        </button>
+                                    </div>
+                                </div>
+                            `;
+                        }).join("");
+
+                        detailAttachList.querySelectorAll(".btn-attach-download").forEach(btn => {
+                            btn.addEventListener("click", async (e) => {
+                                e.preventDefault();
+                                const idx = parseInt(btn.getAttribute("data-index"), 10);
+                                const item = attachments[idx];
+                                if (!item) return;
+
+                                const originalBtnHtml = btn.innerHTML;
+                                try {
+                                    btn.disabled = true;
+                                    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 저장 중...';
+
+                                    let downloadUrl = "";
+                                    let needRevoke = false;
+
+                                    if (item.data) {
+                                        downloadUrl = item.data;
+                                    } else if (item.url) {
+                                        // Fetch as blob so browser strictly enforces original filename (bypassing Cross-Origin a.download restriction)
+                                        const res = await fetch(item.url);
+                                        if (!res.ok) throw new Error("파일 다운로드 실패");
+                                        const blob = await res.blob();
+                                        downloadUrl = window.URL.createObjectURL(blob);
+                                        needRevoke = true;
+                                    }
+
+                                    if (downloadUrl) {
+                                        const a = document.createElement("a");
+                                        a.href = downloadUrl;
+                                        a.download = item.name; // Force exact original filename
+                                        document.body.appendChild(a);
+                                        a.click();
+                                        document.body.removeChild(a);
+
+                                        if (needRevoke) {
+                                            setTimeout(() => window.URL.revokeObjectURL(downloadUrl), 20000);
+                                        }
+                                    }
+                                } catch (err) {
+                                    console.error("Download error:", err);
+                                    if (item.url) {
+                                        window.open(item.url, '_blank');
+                                    } else {
+                                        alert("파일을 다운로드하지 못했습니다.");
+                                    }
+                                } finally {
+                                    btn.disabled = false;
+                                    btn.innerHTML = originalBtnHtml;
+                                }
+                            });
+                        });
+                    }
+                } else {
+                    detailAttachBox.style.display = "none";
+                    if (detailAttachList) detailAttachList.innerHTML = "";
+                }
             }
 
             // Configure action buttons in detail view
