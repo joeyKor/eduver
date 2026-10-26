@@ -1,0 +1,597 @@
+/* ========================================================
+   EDUNAVER / EDUVER Standard Light Mode Login Style
+   Matches EDUVER brand identity & Naver-style card design
+   ======================================================== */
+
+:root {
+    --primary-color: #03c75a; /* EDUVER Brand Green */
+    --primary-hover: #02b351;
+    --primary-active: #029a46;
+    --primary-light: #eefbf3;
+    
+    --bg-main: #f5f6f7;
+    --bg-card: #ffffff;
+    --border-medium: #dadada;
+    --border-focus: #03c75a;
+    
+    --text-primary: #1e1e23;
+    --text-secondary: #505058;
+    --text-muted: #8e8e97;
+    --accent-orange: #ff6f00;
+    
+    --font-korean: 'Noto Sans KR', sans-serif;
+    --font-english: 'Inter', sans-serif;
+}
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    background-color: var(--bg-main);
+    font-family: -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", var(--font-korean), var(--font-english), sans-serif;
+    color: var(--text-primary);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    border: 0;
+}
+
+.login-page-wrap {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
+}
+
+/* 1. Header EDUVER Logo */
+.login-header {
+    padding: 68px 0 28px;
+    text-align: center;
+}
+
+.logo-link {
+    text-decoration: none;
+    display: inline-block;
+    transition: opacity 0.2s;
+}
+
+.logo-link:hover {
+    opacity: 0.9;
+}
+
+.logo-text {
+    font-family: var(--font-english);
+    font-weight: 900;
+    font-size: 38px;
+    letter-spacing: -1.5px;
+    color: #1e1e23;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+}
+
+.logo-highlight {
+    color: var(--primary-color);
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.cap-icon {
+    position: absolute;
+    top: -14px;
+    left: 3px;
+    font-size: 16px;
+    color: var(--accent-orange);
+    transform: rotate(-15deg);
+    animation: cap-bounce 3s infinite ease-in-out;
+}
+
+@keyframes cap-bounce {
+    0%, 100% { transform: rotate(-15deg) translateY(0); }
+    50% { transform: rotate(-10deg) translateY(-3px); }
+}
+
+/* 2. Main Login Container */
+.login-container {
+    width: 100%;
+    max-width: 460px;
+    padding: 0 16px;
+    margin: 0 auto;
+}
+
+/* Redirect Notice Banner */
+.service-notice-banner {
+    background-color: var(--primary-light);
+    border: 1px solid #b7ebd0;
+    border-radius: 8px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    color: #0b6833;
+    font-size: 13.5px;
+    line-height: 1.45;
+    animation: fadeInDown 0.3s ease-out;
+}
+
+.service-notice-banner .notice-icon {
+    font-size: 18px;
+    margin-top: 2px;
+    color: var(--primary-color);
+}
+
+.service-notice-banner strong {
+    display: block;
+    font-size: 14px;
+    margin-bottom: 2px;
+    color: #075227;
+}
+
+/* Card Structure */
+.login-card {
+    background: #ffffff;
+    border: 1px solid var(--border-medium);
+    border-radius: 8px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    padding: 32px 30px 24px;
+    position: relative;
+}
+
+/* Dual Input Group Box */
+.input-row-group {
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    background-color: #ffffff;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.input-row-group.focused {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 2px rgba(3, 199, 90, 0.12);
+}
+
+.input-row-group.error {
+    border-color: #e03131;
+    box-shadow: 0 0 0 2px rgba(224, 49, 49, 0.12);
+}
+
+.input-cell {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 48px;
+    padding: 0 14px;
+}
+
+.login-input {
+    width: 100%;
+    height: 100%;
+    border: none;
+    outline: none;
+    font-size: 15px;
+    color: #1e1e23;
+    background: transparent;
+}
+
+.login-input::placeholder {
+    color: #929294;
+    font-weight: 400;
+}
+
+.input-divider {
+    height: 1px;
+    background-color: #f0f0f0;
+    margin: 0;
+}
+
+/* Action Buttons inside Input */
+.btn-clear-input,
+.btn-toggle-pw {
+    background: none;
+    border: none;
+    color: #b5b5b5;
+    cursor: pointer;
+    padding: 6px;
+    font-size: 14px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s;
+}
+
+.btn-clear-input:hover,
+.btn-toggle-pw:hover {
+    color: #666666;
+}
+
+/* Error Message */
+.login-error-msg {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 10px;
+    color: #e03131;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+/* Options Row (Keep Login & IP Security) */
+.form-options-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 16px 0 20px;
+    font-size: 14px;
+    color: #666666;
+    user-select: none;
+}
+
+.keep-login-label {
+    display: inline-flex;
+    align-items: center;
+    cursor: pointer;
+}
+
+.custom-circle-check {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    border: 1px solid #cccccc;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-right: 8px;
+    font-size: 11px;
+    color: transparent;
+    transition: all 0.2s;
+    background-color: #ffffff;
+}
+
+.custom-circle-check.checked {
+    background-color: var(--primary-color);
+    border-color: var(--primary-color);
+    color: #ffffff;
+}
+
+.ip-security-wrap {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.ip-label {
+    font-size: 13.5px;
+    color: #666666;
+}
+
+.ip-toggle-btn {
+    width: 36px;
+    height: 20px;
+    background-color: #d8d8d8;
+    border-radius: 12px;
+    border: none;
+    cursor: pointer;
+    position: relative;
+    transition: background-color 0.2s;
+    padding: 0;
+}
+
+.ip-toggle-btn.active {
+    background-color: var(--primary-color);
+}
+
+.ip-toggle-knob {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background-color: #ffffff;
+    position: absolute;
+    top: 2px;
+    left: 2px;
+    transition: transform 0.2s ease;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.ip-toggle-btn.active .ip-toggle-knob {
+    transform: translateX(16px);
+}
+
+/* Submit Button */
+.btn-eduver-submit {
+    width: 100%;
+    height: 50px;
+    background-color: var(--primary-color);
+    color: #ffffff;
+    font-size: 17px;
+    font-weight: 700;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background-color 0.2s, transform 0.05s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    letter-spacing: -0.5px;
+}
+
+.btn-eduver-submit:hover {
+    background-color: var(--primary-hover);
+}
+
+.btn-eduver-submit:active {
+    background-color: var(--primary-active);
+    transform: scale(0.99);
+}
+
+/* Sub-login Options (QR, Disposable Number) */
+.sub-login-options {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    margin-top: 20px;
+    font-size: 13.5px;
+    color: #777777;
+}
+
+.btn-sub-opt {
+    background: none;
+    border: none;
+    color: #777777;
+    font-size: 13.5px;
+    cursor: pointer;
+    padding: 2px 4px;
+    transition: color 0.15s;
+}
+
+.btn-sub-opt:hover {
+    color: #1e1e23;
+    text-decoration: underline;
+}
+
+.sub-opt-divider {
+    color: #e0e0e0;
+    font-size: 11px;
+}
+
+/* 3. External Links (Below Card) */
+.login-external-links {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 16px;
+    margin-top: 20px;
+    font-size: 14px;
+}
+
+.ext-link {
+    color: #777777;
+    text-decoration: none;
+    transition: color 0.15s;
+}
+
+.ext-link:hover {
+    color: #1e1e23;
+    text-decoration: underline;
+}
+
+.ext-link.highlight-green {
+    color: var(--primary-color);
+    font-weight: 700;
+}
+
+.ext-link.highlight-green:hover {
+    color: var(--primary-active);
+}
+
+.ext-divider {
+    color: #dadada;
+    font-size: 11px;
+}
+
+/* 4. Alternate Login Views (QR & Disposable Number) */
+.alt-view-title {
+    font-size: 19px;
+    font-weight: 700;
+    text-align: center;
+    margin-bottom: 8px;
+    color: #1e1e23;
+}
+
+.alt-view-desc {
+    font-size: 13.5px;
+    line-height: 1.5;
+    text-align: center;
+    color: #666666;
+    margin-bottom: 24px;
+}
+
+.qr-code-frame {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 20px;
+}
+
+.qr-code-graphic {
+    width: 170px;
+    height: 170px;
+    padding: 10px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background: #ffffff;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.qr-svg {
+    width: 100%;
+    height: 100%;
+}
+
+.qr-timer-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+    font-size: 13px;
+    color: #666666;
+}
+
+.timer-count {
+    font-weight: 700;
+    color: var(--primary-color);
+    font-variant-numeric: tabular-nums;
+}
+
+.btn-refresh-qr {
+    background: none;
+    border: none;
+    color: #888888;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 2px 4px;
+}
+
+.btn-refresh-qr:hover {
+    color: var(--primary-color);
+}
+
+.btn-qr-action {
+    margin-bottom: 12px;
+}
+
+.disposable-input-box {
+    margin: 16px 0 24px;
+}
+
+.disposable-input {
+    width: 100%;
+    height: 52px;
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    padding: 0 16px;
+    font-size: 20px;
+    letter-spacing: 4px;
+    text-align: center;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.disposable-input:focus {
+    border-color: var(--border-focus);
+    box-shadow: 0 0 0 2px rgba(3, 199, 90, 0.12);
+}
+
+.btn-back-to-id {
+    width: 100%;
+    height: 44px;
+    background: #ffffff;
+    border: 1px solid var(--border-medium);
+    border-radius: 6px;
+    color: #666666;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    margin-top: 10px;
+    transition: all 0.15s;
+}
+
+.btn-back-to-id:hover {
+    background-color: #f8fafc;
+    color: #1e1e23;
+    border-color: #b5b5b5;
+}
+
+/* 5. Eduver Standard Footer */
+.login-footer {
+    padding: 40px 16px 48px;
+    text-align: center;
+    font-size: 12px;
+    color: #888888;
+}
+
+.footer-links {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 12px;
+}
+
+.footer-links a {
+    color: #666666;
+    text-decoration: none;
+}
+
+.footer-links a:hover {
+    color: #1e1e23;
+    text-decoration: underline;
+}
+
+.footer-divider {
+    color: #e0e0e0;
+    font-size: 10px;
+}
+
+.footer-copyright {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 6px;
+    color: #888888;
+    font-size: 11.5px;
+}
+
+.footer-logo {
+    color: var(--primary-color);
+    font-weight: 900;
+    text-decoration: none;
+    letter-spacing: -0.5px;
+}
+
+@keyframes fadeInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-8px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+    .login-header {
+        padding: 40px 0 20px;
+    }
+
+    .logo-text {
+        font-size: 32px;
+    }
+
+    .login-card {
+        padding: 24px 20px 20px;
+    }
+
+    .login-footer {
+        padding: 30px 16px;
+    }
+}

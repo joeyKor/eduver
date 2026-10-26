@@ -5,13 +5,59 @@ const POCKETBASE_URL = "https://pb.joyfamkr.synology.me";
 // EDUVER Mail Client - Interactive Logic Script
 
 document.addEventListener("DOMContentLoaded", () => {
-    // Read logged-in username and email from localStorage or default
-    const userName = localStorage.getItem("naverLoggedInUser") || "홍길동";
-    const userEmail = (localStorage.getItem("naverLoggedInEmail") || "gildong@eduver.com").replace(/@(edunaver|edunver|naver)\.com$/i, "@eduver.com");
+    // 0. Authentication Guard: If not logged in, redirect to login.html with return destination
+    const isAuth = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
+    if (!isAuth) {
+        window.location.replace("login.html?redirect=mail.html");
+        return;
+    }
+
+    // Read logged-in username and email from localStorage
+    const userName = localStorage.getItem("naverLoggedInUser") || "사용자";
+    const userEmail = (localStorage.getItem("naverLoggedInEmail") || `${localStorage.getItem("naverLoggedInUsername") || "user"}@eduver.com`).replace(/@(edunaver|edunver|naver)\.com$/i, "@eduver.com");
     const headerUserName = document.getElementById("header-user-name");
     if (headerUserName) {
         headerUserName.textContent = userName;
     }
+
+    // Populate dropdown info
+    const dropdownUserName = document.getElementById("dropdown-user-name");
+    const dropdownUserEmail = document.getElementById("dropdown-user-email");
+    if (dropdownUserName) dropdownUserName.textContent = userName;
+    if (dropdownUserEmail) dropdownUserEmail.textContent = userEmail;
+
+    // Profile Dropdown Toggle & Logout
+    const profileBtn = document.getElementById("mail-user-profile-btn");
+    const profileDropdown = document.getElementById("mail-profile-dropdown");
+    const logoutBtn = document.getElementById("mail-logout-btn");
+
+    if (profileBtn && profileDropdown) {
+        profileBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const isVisible = profileDropdown.style.display === "block";
+            profileDropdown.style.display = isVisible ? "none" : "block";
+        });
+
+        document.addEventListener("click", (e) => {
+            if (!profileBtn.contains(e.target)) {
+                profileDropdown.style.display = "none";
+            }
+        });
+    }
+
+    if (logoutBtn) {
+        logoutBtn.addEventListener("click", (e) => {
+            e.stopPropagation();
+            localStorage.removeItem("naverIsLoggedIn");
+            localStorage.removeItem("naverLoggedInUser");
+            localStorage.removeItem("naverLoggedInUsername");
+            localStorage.removeItem("naverLoggedInUserId");
+            localStorage.removeItem("naverLoggedInEmail");
+            localStorage.removeItem("naverPbRecordId");
+            window.location.replace("login.html?redirect=mail.html");
+        });
+    }
+
     const mailHeaderAvatar = document.getElementById("mail-header-avatar");
     if (mailHeaderAvatar) {
         mailHeaderAvatar.src = "default-avatar.svg";

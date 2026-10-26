@@ -230,6 +230,73 @@ input, textarea {
     color: var(--text-muted);
 }
 
+.mail-profile-dropdown {
+    position: absolute;
+    top: calc(100% + 12px);
+    right: 0;
+    width: 220px;
+    background-color: #ffffff;
+    border: 1px solid var(--border-medium);
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+    padding: 12px 0;
+    z-index: 1000;
+    animation: fadeIn 0.15s ease-out;
+}
+
+.dropdown-user-info {
+    padding: 4px 16px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+}
+
+.dropdown-user-info strong {
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.dropdown-user-info span {
+    font-size: 12px;
+    color: var(--text-muted);
+    word-break: break-all;
+}
+
+.dropdown-divider {
+    height: 1px;
+    background-color: var(--border-light);
+    margin: 6px 0;
+}
+
+.dropdown-link-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 16px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-align: left;
+    transition: background-color 0.15s;
+    background: none;
+    border: none;
+    cursor: pointer;
+}
+
+.dropdown-link-item:hover {
+    background-color: var(--bg-main);
+    color: var(--primary-color);
+}
+
+.btn-mail-logout {
+    color: #e03131;
+}
+
+.btn-mail-logout:hover {
+    background-color: #fff5f5;
+    color: #c92a2a;
+}
+
 .header-icon-btn {
     font-size: 16px;
     color: var(--text-secondary);

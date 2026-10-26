@@ -4,6 +4,15 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>받은메일함 : EDUVER 메일 (에듀버)</title>
+    <!-- Early Auth Check: Redirect to login.html if not authenticated -->
+    <script>
+        (function() {
+            var isAuth = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
+            if (!isAuth) {
+                window.location.replace("login.html?redirect=mail.html");
+            }
+        })();
+    </script>
     <!-- Google Fonts for modern typography -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -42,10 +51,21 @@
             </div>
             
             <div class="header-right">
-                <div class="user-profile">
+                <div class="user-profile" id="mail-user-profile-btn" style="position: relative;">
                     <div class="profile-avatar"><img src="default-avatar.svg" id="mail-header-avatar" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;"></div>
                     <span class="profile-name" id="header-user-name">홍길동</span>
                     <i class="fa-solid fa-caret-down dropdown-arrow"></i>
+
+                    <!-- Profile Dropdown with Logout -->
+                    <div class="mail-profile-dropdown" id="mail-profile-dropdown" style="display: none;">
+                        <div class="dropdown-user-info">
+                            <strong id="dropdown-user-name">홍길동</strong>
+                            <span id="dropdown-user-email">gildong@eduver.com</span>
+                        </div>
+                        <div class="dropdown-divider"></div>
+                        <a href="index.html" class="dropdown-link-item"><i class="fa-solid fa-house"></i> 에듀버 홈</a>
+                        <button type="button" class="dropdown-link-item btn-mail-logout" id="mail-logout-btn"><i class="fa-solid fa-right-from-bracket"></i> 로그아웃</button>
+                    </div>
                 </div>
                 <button class="header-icon-btn" aria-label="메모장"><i class="fa-regular fa-comment-dots"></i></button>
                 <button class="header-icon-btn" aria-label="알림"><i class="fa-regular fa-bell"></i></button>

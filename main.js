@@ -2180,6 +2180,11 @@ document.addEventListener("DOMContentLoaded", () => {
 
     const handleMailNavigation = (e) => {
         if (e) e.preventDefault();
+        const isAuth = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
+        if (!isAuth) {
+            window.location.href = "login.html?redirect=mail.html";
+            return;
+        }
         window.location.href = "mail.html";
     };
 

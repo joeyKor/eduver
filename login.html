@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>에듀버 로그인</title>
+    <!-- Google Fonts for modern typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Noto+Sans+KR:wght@300;400;500;700;900&display=swap" rel="stylesheet">
+    <!-- FontAwesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="login.css">
+</head>
+<body>
+    <div class="login-page-wrap">
+        <!-- Top EDUVER Header Logo -->
+        <header class="login-header">
+            <a href="index.html" class="logo-link" title="에듀버 홈으로 이동">
+                <span class="logo-text">
+                    EDU<span class="logo-highlight">V<span class="cap-icon"><i class="fa-solid fa-graduation-cap"></i></span></span>ER
+                </span>
+            </a>
+        </header>
+
+        <!-- Main Login Card Container -->
+        <main class="login-container">
+            <!-- Mail Service Redirect Notice Banner (Visible when redirected from Mail) -->
+            <div id="service-notice" class="service-notice-banner" style="display: none;">
+                <i class="fa-solid fa-circle-exclamation notice-icon"></i>
+                <div class="notice-text">
+                    <strong>에듀버 메일 서비스 안내</strong>
+                    <span>메일을 이용하시려면 먼저 에듀버 계정으로 로그인해 주세요.</span>
+                </div>
+            </div>
+
+            <div class="login-card">
+                <!-- VIEW 1: Standard ID & Password Login Form -->
+                <div id="view-id-login" class="login-view active">
+                    <form id="eduver-login-form" autocomplete="on">
+                        <!-- Dual Input Group Box -->
+                        <div class="input-row-group" id="input-row-group">
+                            <!-- ID / Phone Input Row -->
+                            <div class="input-cell" id="cell-id">
+                                <label for="login-id" class="sr-only">아이디 또는 전화번호</label>
+                                <input type="text" id="login-id" class="login-input" placeholder="아이디 또는 전화번호" required autocomplete="username">
+                                <button type="button" class="btn-clear-input" id="btn-clear-id" title="입력 지우기" tabindex="-1">
+                                    <i class="fa-solid fa-circle-xmark"></i>
+                                </button>
+                            </div>
+                            <div class="input-divider"></div>
+                            <!-- Password Input Row -->
+                            <div class="input-cell" id="cell-pw">
+                                <label for="login-pw" class="sr-only">비밀번호</label>
+                                <input type="password" id="login-pw" class="login-input" placeholder="비밀번호" required autocomplete="current-password">
+                                <button type="button" class="btn-toggle-pw" id="btn-toggle-pw" title="비밀번호 보기" tabindex="-1">
+                                    <i class="fa-regular fa-eye"></i>
+                                </button>
+                                <button type="button" class="btn-clear-input" id="btn-clear-pw" title="입력 지우기" tabindex="-1">
+                                    <i class="fa-solid fa-circle-xmark"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Error Message Alert -->
+                        <div id="login-error-msg" class="login-error-msg" style="display: none;">
+                            <i class="fa-solid fa-circle-exclamation"></i>
+                            <span id="login-error-text">아이디 또는 비밀번호가 올바르지 않습니다.</span>
+                        </div>
+
+                        <!-- Form Options Row (Keep Login & IP Security) -->
+                        <div class="form-options-row">
+                            <label class="keep-login-label">
+                                <input type="checkbox" id="keep-login-checkbox" class="sr-only" checked>
+                                <span class="custom-circle-check checked" id="custom-check-icon">
+                                    <i class="fa-solid fa-check"></i>
+                                </span>
+                                <span class="option-text">로그인 상태 유지</span>
+                            </label>
+
+                            <div class="ip-security-wrap">
+                                <span class="ip-label">IP 보안</span>
+                                <button type="button" class="ip-toggle-btn active" id="ip-toggle-btn" role="switch" aria-checked="true" title="IP 보안 켜짐/꺼짐">
+                                    <span class="ip-toggle-knob"></span>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Main Submit Button -->
+                        <button type="submit" class="btn-eduver-submit" id="btn-submit">
+                            <span>로그인</span>
+                        </button>
+                    </form>
+
+                    <!-- Quick Sub-actions Row -->
+                    <div class="sub-login-options">
+                        <button type="button" class="btn-sub-opt" id="nav-to-qr">QR 코드 로그인</button>
+                        <span class="sub-opt-divider">|</span>
+                        <button type="button" class="btn-sub-opt" id="nav-to-disposable">일회용 번호 로그인</button>
+                    </div>
+                </div>
+
+                <!-- VIEW 2: QR Code Login View -->
+                <div id="view-qr-login" class="login-view" style="display: none;">
+                    <div class="qr-login-box">
+                        <h2 class="alt-view-title">QR 코드 로그인</h2>
+                        <p class="alt-view-desc">
+                            스마트폰 <strong>에듀버 앱</strong> 상단의 <strong>렌즈</strong>로<br>
+                            아래의 QR 코드를 스캔해 주세요.
+                        </p>
+
+                        <div class="qr-code-frame">
+                            <div class="qr-code-graphic">
+                                <svg viewBox="0 0 100 100" class="qr-svg">
+                                    <!-- QR Graphic Simulation -->
+                                    <rect width="100" height="100" fill="#ffffff" />
+                                    <!-- Top Left Position Detection Pattern -->
+                                    <rect x="10" y="10" width="24" height="24" fill="#000000" rx="3" />
+                                    <rect x="14" y="14" width="16" height="16" fill="#ffffff" rx="2" />
+                                    <rect x="18" y="18" width="8" height="8" fill="#03c75a" rx="1" />
+                                    <!-- Top Right Position Detection Pattern -->
+                                    <rect x="66" y="10" width="24" height="24" fill="#000000" rx="3" />
+                                    <rect x="70" y="14" width="16" height="16" fill="#ffffff" rx="2" />
+                                    <rect x="74" y="18" width="8" height="8" fill="#03c75a" rx="1" />
+                                    <!-- Bottom Left Position Detection Pattern -->
+                                    <rect x="10" y="66" width="24" height="24" fill="#000000" rx="3" />
+                                    <rect x="14" y="70" width="16" height="16" fill="#ffffff" rx="2" />
+                                    <rect x="18" y="74" width="8" height="8" fill="#03c75a" rx="1" />
+                                    <!-- Data Dots -->
+                                    <rect x="42" y="12" width="6" height="6" fill="#222" />
+                                    <rect x="52" y="12" width="6" height="6" fill="#222" />
+                                    <rect x="42" y="24" width="6" height="6" fill="#222" />
+                                    <rect x="52" y="28" width="6" height="6" fill="#03c75a" />
+                                    <rect x="12" y="42" width="6" height="6" fill="#222" />
+                                    <rect x="24" y="42" width="6" height="6" fill="#222" />
+                                    <rect x="36" y="42" width="6" height="6" fill="#222" />
+                                    <rect x="48" y="42" width="6" height="6" fill="#222" />
+                                    <rect x="60" y="42" width="6" height="6" fill="#222" />
+                                    <rect x="72" y="42" width="6" height="6" fill="#222" />
+                                    <rect x="84" y="42" width="6" height="6" fill="#222" />
+                                    <rect x="42" y="54" width="6" height="6" fill="#222" />
+                                    <rect x="54" y="54" width="6" height="6" fill="#222" />
+                                    <rect x="42" y="66" width="6" height="6" fill="#222" />
+                                    <rect x="54" y="66" width="6" height="6" fill="#03c75a" />
+                                    <rect x="66" y="66" width="6" height="6" fill="#222" />
+                                    <rect x="78" y="66" width="6" height="6" fill="#222" />
+                                    <rect x="42" y="78" width="6" height="6" fill="#222" />
+                                    <rect x="54" y="78" width="6" height="6" fill="#222" />
+                                    <rect x="66" y="78" width="6" height="6" fill="#222" />
+                                    <rect x="78" y="78" width="6" height="6" fill="#222" />
+                                    <!-- Center EDUVER E -->
+                                    <rect x="40" y="40" width="20" height="20" fill="#03c75a" rx="4" />
+                                    <path d="M45 46H55M45 50H53M45 54H55M45 46V54" stroke="#ffffff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none" />
+                                </svg>
+                            </div>
+                            <div class="qr-timer-row">
+                                <span class="timer-label">유효시간</span>
+                                <span class="timer-count" id="qr-timer">03:00</span>
+                                <button type="button" class="btn-refresh-qr" id="btn-refresh-qr" title="QR 코드 새로고침">
+                                    <i class="fa-solid fa-arrows-rotate"></i>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Quick Test Scan Button -->
+                        <button type="button" class="btn-eduver-submit btn-qr-action" id="btn-test-qr-login">
+                            <i class="fa-solid fa-mobile-screen-button"></i> 에듀버 앱 인증 시뮬레이션
+                        </button>
+
+                        <button type="button" class="btn-back-to-id" id="btn-back-from-qr">
+                            일반 아이디 로그인으로 돌아가기
+                        </button>
+                    </div>
+                </div>
+
+                <!-- VIEW 3: Disposable Number Login View -->
+                <div id="view-disposable-login" class="login-view" style="display: none;">
+                    <div class="disposable-login-box">
+                        <h2 class="alt-view-title">일회용 번호 로그인</h2>
+                        <p class="alt-view-desc">
+                            <strong>에듀버 앱</strong> &gt; <strong>메뉴</strong> &gt; <strong>설정</strong> &gt; <strong>일회용 번호</strong>에서<br>
+                            발급받은 8자리 번호를 입력해 주세요.
+                        </p>
+
+                        <div class="disposable-input-box">
+                            <input type="text" id="disposable-num" maxlength="8" placeholder="번호 8자리 입력" class="disposable-input" inputmode="numeric">
+                        </div>
+
+                        <button type="button" class="btn-eduver-submit" id="btn-disposable-submit">
+                            로그인
+                        </button>
+
+                        <button type="button" class="btn-back-to-id" id="btn-back-from-disposable">
+                            일반 아이디 로그인으로 돌아가기
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Bottom External Account Links (Matches Naver/Eduver Style) -->
+            <nav class="login-external-links" aria-label="계정 관리 링크">
+                <a href="find-id.html" class="ext-link">아이디 찾기</a>
+                <span class="ext-divider">|</span>
+                <a href="find-password.html" class="ext-link">비밀번호 찾기</a>
+                <span class="ext-divider">|</span>
+                <a href="signup.html" class="ext-link highlight-green">회원가입</a>
+            </nav>
+        </main>
+
+        <!-- Eduver Footer Standard -->
+        <footer class="login-footer">
+            <div class="footer-links">
+                <a href="#">이용약관</a>
+                <span class="footer-divider">|</span>
+                <a href="#"><strong>개인정보처리방침</strong></a>
+                <span class="footer-divider">|</span>
+                <a href="#">책임의 한계와 법적고지</a>
+                <span class="footer-divider">|</span>
+                <a href="#">회원정보 고객센터</a>
+            </div>
+            <div class="footer-copyright">
+                <a href="index.html" class="footer-logo">EDUVER</a>
+                <span>Copyright © <strong>EDUVER Corp.</strong> All Rights Reserved.</span>
+            </div>
+        </footer>
+    </div>
+
+    <script src="login.js"></script>
+</body>
+</html>
