@@ -236,6 +236,12 @@
                                 <button class="delete-unread-btn">삭제</button>
                             </span>
                             <span class="divider"></span>
+                            <div class="toolbar-page-nav" id="inbox-top-paging">
+                                <span class="top-page-text"><strong class="top-curr-page">1</strong>/<span class="top-total-page">1</span></span>
+                                <button class="top-page-btn btn-prev" title="이전 페이지"><i class="fa-solid fa-chevron-left"></i></button>
+                                <button class="top-page-btn btn-next" title="다음 페이지"><i class="fa-solid fa-chevron-right"></i></button>
+                            </div>
+                            <span class="divider"></span>
                             <button class="view-settings-btn" title="정렬 및 뷰 설정"><i class="fa-solid fa-clock-rotate-left"></i> <i class="fa-solid fa-bars"></i></button>
                         </div>
                     </div>
@@ -245,6 +251,19 @@
                         <ul class="mail-list-table" id="inbox-list">
                             <!-- Populated dynamically via PocketBase -->
                         </ul>
+                    </div>
+
+                    <!-- Inbox Pagination Bar -->
+                    <div class="mail-pagination-wrap" id="inbox-pagination">
+                        <div class="pagination-center"></div>
+                        <div class="pagination-right">
+                            <select class="mail-per-page-select" data-mailbox="inbox" title="페이지당 메일 수">
+                                <option value="15">15개씩 보기</option>
+                                <option value="20" selected>20개씩 보기</option>
+                                <option value="30">30개씩 보기</option>
+                                <option value="50">50개씩 보기</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -262,6 +281,12 @@
                         </div>
                         <div class="toolbar-right">
                             <span class="page-count">보낸 메일 <strong id="sent-mailbox-count">0</strong>개</span>
+                            <span class="divider"></span>
+                            <div class="toolbar-page-nav" id="sent-top-paging">
+                                <span class="top-page-text"><strong class="top-curr-page">1</strong>/<span class="top-total-page">1</span></span>
+                                <button class="top-page-btn btn-prev" title="이전 페이지"><i class="fa-solid fa-chevron-left"></i></button>
+                                <button class="top-page-btn btn-next" title="다음 페이지"><i class="fa-solid fa-chevron-right"></i></button>
+                            </div>
                         </div>
                     </div>
 
@@ -275,6 +300,19 @@
                                 </div>
                             </li>
                         </ul>
+                    </div>
+
+                    <!-- Sent Pagination Bar -->
+                    <div class="mail-pagination-wrap" id="sent-pagination">
+                        <div class="pagination-center"></div>
+                        <div class="pagination-right">
+                            <select class="mail-per-page-select" data-mailbox="sent" title="페이지당 메일 수">
+                                <option value="15">15개씩 보기</option>
+                                <option value="20" selected>20개씩 보기</option>
+                                <option value="30">30개씩 보기</option>
+                                <option value="50">50개씩 보기</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -292,6 +330,12 @@
                         </div>
                         <div class="toolbar-right">
                             <span class="page-count">수신확인 <strong id="receipt-mailbox-count">0</strong>건</span>
+                            <span class="divider"></span>
+                            <div class="toolbar-page-nav" id="receipt-top-paging">
+                                <span class="top-page-text"><strong class="top-curr-page">1</strong>/<span class="top-total-page">1</span></span>
+                                <button class="top-page-btn btn-prev" title="이전 페이지"><i class="fa-solid fa-chevron-left"></i></button>
+                                <button class="top-page-btn btn-next" title="다음 페이지"><i class="fa-solid fa-chevron-right"></i></button>
+                            </div>
                         </div>
                     </div>
 
@@ -305,6 +349,19 @@
                                 </div>
                             </li>
                         </ul>
+                    </div>
+
+                    <!-- Receipt Pagination Bar -->
+                    <div class="mail-pagination-wrap" id="receipt-pagination">
+                        <div class="pagination-center"></div>
+                        <div class="pagination-right">
+                            <select class="mail-per-page-select" data-mailbox="receipt" title="페이지당 메일 수">
+                                <option value="15">15개씩 보기</option>
+                                <option value="20" selected>20개씩 보기</option>
+                                <option value="30">30개씩 보기</option>
+                                <option value="50">50개씩 보기</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 
@@ -324,6 +381,12 @@
                         </div>
                         <div class="toolbar-right">
                             <span class="page-count">휴지통 <strong id="trash-mailbox-count">0</strong>개</span>
+                            <span class="divider"></span>
+                            <div class="toolbar-page-nav" id="trash-top-paging">
+                                <span class="top-page-text"><strong class="top-curr-page">1</strong>/<span class="top-total-page">1</span></span>
+                                <button class="top-page-btn btn-prev" title="이전 페이지"><i class="fa-solid fa-chevron-left"></i></button>
+                                <button class="top-page-btn btn-next" title="다음 페이지"><i class="fa-solid fa-chevron-right"></i></button>
+                            </div>
                         </div>
                     </div>
 
@@ -337,6 +400,19 @@
                                 </div>
                             </li>
                         </ul>
+                    </div>
+
+                    <!-- Trash Pagination Bar -->
+                    <div class="mail-pagination-wrap" id="trash-pagination">
+                        <div class="pagination-center"></div>
+                        <div class="pagination-right">
+                            <select class="mail-per-page-select" data-mailbox="trash" title="페이지당 메일 수">
+                                <option value="15">15개씩 보기</option>
+                                <option value="20" selected>20개씩 보기</option>
+                                <option value="30">30개씩 보기</option>
+                                <option value="50">50개씩 보기</option>
+                            </select>
+                        </div>
                     </div>
                 </div>
 

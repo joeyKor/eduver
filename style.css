@@ -825,6 +825,14 @@ input {
     border-right: 1px solid var(--border-medium);
     margin-right: 14px;
     white-space: nowrap;
+    text-decoration: none;
+    cursor: pointer;
+    transition: opacity 0.15s ease;
+}
+
+.ticker-label:hover {
+    text-decoration: underline;
+    opacity: 0.85;
 }
 
 .ticker-content {

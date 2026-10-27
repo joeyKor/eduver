@@ -426,7 +426,15 @@ document.addEventListener("DOMContentLoaded", () => {
     // Cached active emails
     let currentInboxEmails = [];
     let currentSentEmails = [];
+    let currentReceiptEmails = [];
     const selectedMailIds = new Set();
+
+    // Pagination State
+    let mailPageSize = parseInt(localStorage.getItem("naverMailPageSize"), 10) || 20;
+    let inboxCurrentPage = 1;
+    let sentCurrentPage = 1;
+    let receiptCurrentPage = 1;
+    let trashCurrentPage = 1;
 
     // Sub-tab & Filter elements
     const tabInboxMain = document.getElementById("tab-inbox-main");
@@ -474,6 +482,7 @@ document.addEventListener("DOMContentLoaded", () => {
         if (panelName === "inbox") {
             currentPanel = "inbox";
             inboxFilterMode = filterMode || "all";
+            inboxCurrentPage = 1;
             inboxPanel.style.display = "flex";
             if (folderInboxBtn) folderInboxBtn.classList.add("active");
             if (tabInboxMain) tabInboxMain.textContent = "받은메일함";
@@ -482,6 +491,7 @@ document.addEventListener("DOMContentLoaded", () => {
         } else if (panelName === "all") {
             currentPanel = "all";
             inboxFilterMode = "all";
+            inboxCurrentPage = 1;
             inboxPanel.style.display = "flex";
             if (folderAllBtn) folderAllBtn.classList.add("active");
             if (tabInboxMain) tabInboxMain.textContent = "전체메일";
@@ -489,16 +499,19 @@ document.addEventListener("DOMContentLoaded", () => {
             renderInboxEmailsList();
         } else if (panelName === "sent") {
             currentPanel = "sent";
+            sentCurrentPage = 1;
             sentPanel.style.display = "flex";
             if (folderSentBtn) folderSentBtn.classList.add("active");
             renderSentEmailsList();
         } else if (panelName === "receipt") {
             currentPanel = "receipt";
+            receiptCurrentPage = 1;
             if (receiptPanel) receiptPanel.style.display = "flex";
             if (folderReceiptBtn) folderReceiptBtn.classList.add("active");
             renderReceiptEmailsList();
         } else if (panelName === "trash") {
             currentPanel = "trash";
+            trashCurrentPage = 1;
             if (trashPanel) trashPanel.style.display = "flex";
             if (folderTrashBtn) folderTrashBtn.classList.add("active");
             renderTrashEmailsList();
@@ -558,6 +571,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (tabInboxMain) {
         tabInboxMain.addEventListener("click", () => {
             inboxFilterMode = "all";
+            inboxCurrentPage = 1;
             updateUnreadFilterBtnUI();
             renderInboxEmailsList();
         });
@@ -566,6 +580,7 @@ document.addEventListener("DOMContentLoaded", () => {
     if (filterUnreadToggle) {
         filterUnreadToggle.addEventListener("click", () => {
             inboxFilterMode = (inboxFilterMode === "unread") ? "all" : "unread";
+            inboxCurrentPage = 1;
             updateUnreadFilterBtnUI();
             renderInboxEmailsList();
         });
@@ -863,8 +878,120 @@ document.addEventListener("DOMContentLoaded", () => {
     };
 
     // ----------------------------------------------------
-    // 4. Render Inbox, Sent & Trash Mail Box
+    // 4. Render Inbox, Sent & Trash Mail Box with Pagination
     // ----------------------------------------------------
+    const SVG_FIRST = `<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 13L6 8l5-5"/><path d="M7 13L2 8l5-5"/></svg>`;
+    const SVG_PREV  = `<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13L5 8l5-5"/></svg>`;
+    const SVG_NEXT  = `<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3l5 5-5 5"/></svg>`;
+    const SVG_LAST  = `<svg width="10" height="10" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 3l5 5-5 5"/><path d="M9 3l5 5-5 5"/></svg>`;
+
+    const renderPagination = (containerId, topNavId, currentPage, totalItems, pageSize, onPageChange) => {
+        const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+        const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+
+        // 1. Top toolbar mini pagination
+        if (topNavId) {
+            const topNav = document.getElementById(topNavId);
+            if (topNav) {
+                const currEl = topNav.querySelector(".top-curr-page");
+                const totalEl = topNav.querySelector(".top-total-page");
+                const btnPrev = topNav.querySelector(".btn-prev");
+                const btnNext = topNav.querySelector(".btn-next");
+
+                if (currEl) currEl.textContent = safeCurrentPage;
+                if (totalEl) totalEl.textContent = totalPages;
+
+                if (btnPrev) {
+                    btnPrev.disabled = safeCurrentPage <= 1;
+                    btnPrev.onclick = (e) => {
+                        e.stopPropagation();
+                        if (safeCurrentPage > 1) onPageChange(safeCurrentPage - 1);
+                    };
+                }
+                if (btnNext) {
+                    btnNext.disabled = safeCurrentPage >= totalPages;
+                    btnNext.onclick = (e) => {
+                        e.stopPropagation();
+                        if (safeCurrentPage < totalPages) onPageChange(safeCurrentPage + 1);
+                    };
+                }
+            }
+        }
+
+        // 2. Bottom pagination bar
+        const container = document.getElementById(containerId);
+        if (!container) return;
+
+        const center = container.querySelector(".pagination-center");
+        if (!center) return;
+
+        center.innerHTML = "";
+
+        if (totalItems === 0) {
+            center.innerHTML = `
+                <button class="page-btn nav-btn prev-group" disabled title="처음">${SVG_FIRST}</button>
+                <button class="page-btn nav-btn prev-one" disabled title="이전">${SVG_PREV}</button>
+                <button class="page-btn num-btn active" disabled>1</button>
+                <button class="page-btn nav-btn next-one" disabled title="다음">${SVG_NEXT}</button>
+                <button class="page-btn nav-btn next-group" disabled title="끝">${SVG_LAST}</button>
+            `;
+            return;
+        }
+
+        const pageWindow = 5;
+        const startPage = Math.floor((safeCurrentPage - 1) / pageWindow) * pageWindow + 1;
+        const endPage = Math.min(startPage + pageWindow - 1, totalPages);
+
+        // << First
+        const firstBtn = document.createElement("button");
+        firstBtn.className = "page-btn nav-btn prev-group";
+        firstBtn.title = "처음";
+        firstBtn.innerHTML = SVG_FIRST;
+        firstBtn.disabled = safeCurrentPage <= 1;
+        firstBtn.addEventListener("click", () => onPageChange(1));
+        center.appendChild(firstBtn);
+
+        // < Prev
+        const prevBtn = document.createElement("button");
+        prevBtn.className = "page-btn nav-btn prev-one";
+        prevBtn.title = "이전";
+        prevBtn.innerHTML = SVG_PREV;
+        prevBtn.disabled = safeCurrentPage <= 1;
+        prevBtn.addEventListener("click", () => onPageChange(safeCurrentPage - 1));
+        center.appendChild(prevBtn);
+
+        // Numbers (e.g. 1 2 3 4 5)
+        for (let p = startPage; p <= endPage; p++) {
+            const numBtn = document.createElement("button");
+            numBtn.className = `page-btn num-btn${p === safeCurrentPage ? " active" : ""}`;
+            numBtn.textContent = p;
+            if (p === safeCurrentPage) {
+                numBtn.setAttribute("aria-current", "page");
+            } else {
+                numBtn.addEventListener("click", () => onPageChange(p));
+            }
+            center.appendChild(numBtn);
+        }
+
+        // > Next
+        const nextBtn = document.createElement("button");
+        nextBtn.className = "page-btn nav-btn next-one";
+        nextBtn.title = "다음";
+        nextBtn.innerHTML = SVG_NEXT;
+        nextBtn.disabled = safeCurrentPage >= totalPages;
+        nextBtn.addEventListener("click", () => onPageChange(safeCurrentPage + 1));
+        center.appendChild(nextBtn);
+
+        // >> Last
+        const lastBtn = document.createElement("button");
+        lastBtn.className = "page-btn nav-btn next-group";
+        lastBtn.title = "끝";
+        lastBtn.innerHTML = SVG_LAST;
+        lastBtn.disabled = safeCurrentPage >= totalPages;
+        lastBtn.addEventListener("click", () => onPageChange(totalPages));
+        center.appendChild(lastBtn);
+    };
+
     const renderInboxRows = (allEmails) => {
         const inboxList = document.getElementById("inbox-list");
         if (!inboxList) return;
@@ -892,7 +1019,11 @@ document.addEventListener("DOMContentLoaded", () => {
             ? allEmails.filter(m => !m.is_read)
             : allEmails;
 
-        if (displayEmails.length === 0) {
+        const totalItems = displayEmails.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / mailPageSize));
+        inboxCurrentPage = Math.min(Math.max(1, inboxCurrentPage), totalPages);
+
+        if (totalItems === 0) {
             const emptyText = (inboxFilterMode === "unread")
                 ? "읽지 않은 메일이 없습니다."
                 : "받은 메일이 없습니다.";
@@ -905,11 +1036,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 </li>
             `;
             updateToolbarSelectAllUI("toolbar-select-all", "inbox-list");
+            renderPagination("inbox-pagination", "inbox-top-paging", inboxCurrentPage, 0, mailPageSize, (newPage) => {
+                inboxCurrentPage = newPage;
+                renderInboxRows(currentInboxEmails);
+            });
             return;
         }
 
+        const startIdx = (inboxCurrentPage - 1) * mailPageSize;
+        const pageEmails = displayEmails.slice(startIdx, startIdx + mailPageSize);
+
         inboxList.innerHTML = "";
-        displayEmails.forEach((email) => {
+        pageEmails.forEach((email) => {
             const isRead = email.is_read;
             const isSelected = selectedMailIds.has(String(email.id));
             const li = document.createElement("li");
@@ -948,6 +1086,10 @@ document.addEventListener("DOMContentLoaded", () => {
             inboxList.appendChild(li);
         });
         updateToolbarSelectAllUI("toolbar-select-all", "inbox-list");
+        renderPagination("inbox-pagination", "inbox-top-paging", inboxCurrentPage, totalItems, mailPageSize, (newPage) => {
+            inboxCurrentPage = newPage;
+            renderInboxRows(currentInboxEmails);
+        });
     };
 
     const renderInboxEmailsList = async () => {
@@ -956,7 +1098,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
             const filterParam = buildEmailFilter('recipient', currentUserEmail);
-            const response = await fetch(`${POCKETBASE_URL}/api/collections/mails/records?sort=-created&filter=${filterParam}`);
+            const response = await fetch(`${POCKETBASE_URL}/api/collections/mails/records?sort=-created&filter=${filterParam}&perPage=500`);
             if (!response.ok) throw new Error("API error");
             const data = await response.json();
             const trashedIds = getTrashMailIds();
@@ -976,12 +1118,86 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
+    const renderSentRows = (emails) => {
+        if (!sentList) return;
+
+        const totalItems = emails.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / mailPageSize));
+        sentCurrentPage = Math.min(Math.max(1, sentCurrentPage), totalPages);
+
+        if (totalItems === 0) {
+            sentList.innerHTML = `
+                <li class="empty-mailbox-li">
+                    <div class="empty-mailbox-msg">
+                        <i class="fa-regular fa-folder-open"></i>
+                        <p>보낸 메일이 없습니다. '메일 쓰기' 버튼을 눌러 첫 메일을 작성해 보세요!</p>
+                    </div>
+                </li>
+            `;
+            updateToolbarSelectAllUI("toolbar-select-all-sent", "sent-list");
+            renderPagination("sent-pagination", "sent-top-paging", sentCurrentPage, 0, mailPageSize, (newPage) => {
+                sentCurrentPage = newPage;
+                renderSentRows(currentSentEmails);
+            });
+            return;
+        }
+
+        const startIdx = (sentCurrentPage - 1) * mailPageSize;
+        const pageEmails = emails.slice(startIdx, startIdx + mailPageSize);
+
+        sentList.innerHTML = "";
+        pageEmails.forEach((email) => {
+            const isSelected = selectedMailIds.has(String(email.id));
+            const li = document.createElement("li");
+            li.className = `mail-row${isSelected ? " selected" : ""}`;
+            li.setAttribute("data-id", email.id);
+            
+            let timeStr = email.created;
+            try {
+                const dateObj = new Date(email.created.replace(" ", "T"));
+                if (!isNaN(dateObj.getTime())) {
+                    timeStr = dateObj.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }) + " " + dateObj.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+                }
+            } catch (e) {}
+
+            const isRead = email.is_read;
+            const receiptHtml = isRead 
+                ? `<div class="col-receipt read-receipt" title="상대방이 읽음"><i class="fa-regular fa-envelope-open receipt-icon"></i> ${timeStr}</div>`
+                : `<div class="col-receipt unread-receipt" title="상대방이 아직 읽지 않음">읽지않음</div>`;
+
+            const recipientInfo = getSenderInfo(email.recipient);
+            const checkIcon = isSelected 
+                ? '<i class="fa-solid fa-square-check" style="color: #03c75a;"></i>' 
+                : '<i class="fa-regular fa-square"></i>';
+
+            li.innerHTML = `
+                <div class="col-check">${checkIcon}</div>
+                <div class="col-star"><i class="fa-regular fa-star"></i></div>
+                <div class="col-read-icon"><i class="fa-regular fa-envelope-open icon-mail-open"></i></div>
+                <div class="col-sender" title="${recipientInfo.fullDisplay}">${recipientInfo.name}</div>
+                <div class="col-subject">
+                    <span class="subj-text">${email.subject}</span>
+                    <i class="fa-solid fa-magnifying-glass icon-hover" title="본문 검색"></i>
+                    <i class="fa-solid fa-arrow-up-right-from-square icon-hover" title="새 창으로 열기"></i>
+                </div>
+                <div class="col-time">${timeStr}</div>
+                ${receiptHtml}
+            `;
+            sentList.appendChild(li);
+        });
+        updateToolbarSelectAllUI("toolbar-select-all-sent", "sent-list");
+        renderPagination("sent-pagination", "sent-top-paging", sentCurrentPage, totalItems, mailPageSize, (newPage) => {
+            sentCurrentPage = newPage;
+            renderSentRows(currentSentEmails);
+        });
+    };
+
     const renderSentEmailsList = async () => {
         if (!sentList) return;
 
         try {
             const filterParam = buildEmailFilter('sender', currentUserEmail);
-            const response = await fetch(`${POCKETBASE_URL}/api/collections/mails/records?sort=-created&filter=${filterParam}`);
+            const response = await fetch(`${POCKETBASE_URL}/api/collections/mails/records?sort=-created&filter=${filterParam}&perPage=500`);
             if (!response.ok) throw new Error("API error");
             const data = await response.json();
             const trashedIds = getTrashMailIds();
@@ -991,61 +1207,7 @@ document.addEventListener("DOMContentLoaded", () => {
             if (sentMailboxCount) sentMailboxCount.textContent = emails.length;
             if (sentMailCountSidebar) sentMailCountSidebar.textContent = emails.length;
             updateTrashBadges();
-
-            if (emails.length === 0) {
-                sentList.innerHTML = `
-                    <li class="empty-mailbox-li">
-                        <div class="empty-mailbox-msg">
-                            <i class="fa-regular fa-folder-open"></i>
-                            <p>보낸 메일이 없습니다. '메일 쓰기' 버튼을 눌러 첫 메일을 작성해 보세요!</p>
-                        </div>
-                    </li>
-                `;
-                updateToolbarSelectAllUI("toolbar-select-all-sent", "sent-list");
-                return;
-            }
-
-            sentList.innerHTML = "";
-            emails.forEach((email) => {
-                const isSelected = selectedMailIds.has(String(email.id));
-                const li = document.createElement("li");
-                li.className = `mail-row${isSelected ? " selected" : ""}`;
-                li.setAttribute("data-id", email.id);
-                
-                let timeStr = email.created;
-                try {
-                    const dateObj = new Date(email.created.replace(" ", "T"));
-                    if (!isNaN(dateObj.getTime())) {
-                        timeStr = dateObj.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }) + " " + dateObj.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
-                    }
-                } catch (e) {}
-
-                const isRead = email.is_read;
-                const receiptHtml = isRead 
-                    ? `<div class="col-receipt read-receipt" title="상대방이 읽음"><i class="fa-regular fa-envelope-open receipt-icon"></i> ${timeStr}</div>`
-                    : `<div class="col-receipt unread-receipt" title="상대방이 아직 읽지 않음">읽지않음</div>`;
-
-                const recipientInfo = getSenderInfo(email.recipient);
-                const checkIcon = isSelected 
-                    ? '<i class="fa-solid fa-square-check" style="color: #03c75a;"></i>' 
-                    : '<i class="fa-regular fa-square"></i>';
-
-                li.innerHTML = `
-                    <div class="col-check">${checkIcon}</div>
-                    <div class="col-star"><i class="fa-regular fa-star"></i></div>
-                    <div class="col-read-icon"><i class="fa-regular fa-envelope-open icon-mail-open"></i></div>
-                    <div class="col-sender" title="${recipientInfo.fullDisplay}">${recipientInfo.name}</div>
-                    <div class="col-subject">
-                        <span class="subj-text">${email.subject}</span>
-                        <i class="fa-solid fa-magnifying-glass icon-hover" title="본문 검색"></i>
-                        <i class="fa-solid fa-arrow-up-right-from-square icon-hover" title="새 창으로 열기"></i>
-                    </div>
-                    <div class="col-time">${timeStr}</div>
-                    ${receiptHtml}
-                `;
-                sentList.appendChild(li);
-            });
-            updateToolbarSelectAllUI("toolbar-select-all-sent", "sent-list");
+            renderSentRows(currentSentEmails);
         } catch (err) {
             console.error("Error fetching sent emails:", err);
             sentList.innerHTML = `
@@ -1059,14 +1221,15 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     };
 
-    const renderTrashEmailsList = () => {
+    const renderTrashRows = (trashMails) => {
         const trashList = document.getElementById("trash-list");
         if (!trashList) return;
 
-        const trashMails = getTrashMails();
-        updateTrashBadges();
+        const totalItems = trashMails.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / mailPageSize));
+        trashCurrentPage = Math.min(Math.max(1, trashCurrentPage), totalPages);
 
-        if (trashMails.length === 0) {
+        if (totalItems === 0) {
             trashList.innerHTML = `
                 <li class="empty-mailbox-li">
                     <div class="empty-mailbox-msg">
@@ -1076,11 +1239,18 @@ document.addEventListener("DOMContentLoaded", () => {
                 </li>
             `;
             updateToolbarSelectAllUI("toolbar-select-all-trash", "trash-list");
+            renderPagination("trash-pagination", "trash-top-paging", trashCurrentPage, 0, mailPageSize, (newPage) => {
+                trashCurrentPage = newPage;
+                renderTrashRows(getTrashMails());
+            });
             return;
         }
 
+        const startIdx = (trashCurrentPage - 1) * mailPageSize;
+        const pageEmails = trashMails.slice(startIdx, startIdx + mailPageSize);
+
         trashList.innerHTML = "";
-        trashMails.forEach(email => {
+        pageEmails.forEach(email => {
             const isSelected = selectedMailIds.has(String(email.id));
             const li = document.createElement("li");
             li.className = `mail-row${isSelected ? " selected" : ""}`;
@@ -1112,6 +1282,84 @@ document.addEventListener("DOMContentLoaded", () => {
             trashList.appendChild(li);
         });
         updateToolbarSelectAllUI("toolbar-select-all-trash", "trash-list");
+        renderPagination("trash-pagination", "trash-top-paging", trashCurrentPage, totalItems, mailPageSize, (newPage) => {
+            trashCurrentPage = newPage;
+            renderTrashRows(getTrashMails());
+        });
+    };
+
+    const renderTrashEmailsList = () => {
+        const trashMails = getTrashMails();
+        updateTrashBadges();
+        renderTrashRows(trashMails);
+    };
+
+    const renderReceiptRows = (emails) => {
+        if (!receiptList) return;
+
+        const totalItems = emails.length;
+        const totalPages = Math.max(1, Math.ceil(totalItems / mailPageSize));
+        receiptCurrentPage = Math.min(Math.max(1, receiptCurrentPage), totalPages);
+
+        if (totalItems === 0) {
+            receiptList.innerHTML = `
+                <li class="empty-mailbox-li">
+                    <div class="empty-mailbox-msg">
+                        <i class="fa-regular fa-folder-open"></i>
+                        <p>수신확인할 메일이 없습니다.</p>
+                    </div>
+                </li>
+            `;
+            renderPagination("receipt-pagination", "receipt-top-paging", receiptCurrentPage, 0, mailPageSize, (newPage) => {
+                receiptCurrentPage = newPage;
+                renderReceiptRows(currentReceiptEmails);
+            });
+            return;
+        }
+
+        const startIdx = (receiptCurrentPage - 1) * mailPageSize;
+        const pageEmails = emails.slice(startIdx, startIdx + mailPageSize);
+
+        receiptList.innerHTML = "";
+        pageEmails.forEach((email) => {
+            const li = document.createElement("li");
+            li.className = "mail-row";
+            li.setAttribute("data-id", email.id);
+            
+            let timeStr = email.created;
+            try {
+                const dateObj = new Date(email.created.replace(" ", "T"));
+                if (!isNaN(dateObj.getTime())) {
+                    timeStr = dateObj.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }) + " " + dateObj.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
+                }
+            } catch (e) {}
+
+            const isRead = email.is_read;
+            const receiptHtml = isRead 
+                ? `<div class="col-receipt read-receipt" title="상대방이 읽음"><i class="fa-regular fa-envelope-open receipt-icon"></i> ${timeStr}</div>`
+                : `<div class="col-receipt unread-receipt" title="상대방이 아직 읽지 않음">읽지않음</div>`;
+
+            const recipientInfo = getSenderInfo(email.recipient);
+
+            li.innerHTML = `
+                <div class="col-check"><i class="fa-regular fa-square"></i></div>
+                <div class="col-star"><i class="fa-regular fa-star"></i></div>
+                <div class="col-read-icon"><i class="fa-solid fa-user-check" style="color: #9aa0a6; font-size: 13px;"></i></div>
+                <div class="col-sender" title="${recipientInfo.fullDisplay}">${recipientInfo.name}</div>
+                <div class="col-subject">
+                    <span class="subj-text">${email.subject}</span>
+                    <i class="fa-solid fa-magnifying-glass icon-hover" title="본문 검색"></i>
+                    <i class="fa-solid fa-arrow-up-right-from-square icon-hover" title="새 창으로 열기"></i>
+                </div>
+                <div class="col-time">${timeStr}</div>
+                ${receiptHtml}
+            `;
+            receiptList.appendChild(li);
+        });
+        renderPagination("receipt-pagination", "receipt-top-paging", receiptCurrentPage, totalItems, mailPageSize, (newPage) => {
+            receiptCurrentPage = newPage;
+            renderReceiptRows(currentReceiptEmails);
+        });
     };
 
     const renderReceiptEmailsList = async () => {
@@ -1119,61 +1367,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
         try {
             const filterParam = buildEmailFilter('sender', currentUserEmail);
-            const response = await fetch(`${POCKETBASE_URL}/api/collections/mails/records?sort=-created&filter=${filterParam}`);
+            const response = await fetch(`${POCKETBASE_URL}/api/collections/mails/records?sort=-created&filter=${filterParam}&perPage=500`);
             if (!response.ok) throw new Error("API error");
             const data = await response.json();
             const emails = data.items || [];
+            currentReceiptEmails = emails;
 
             if (receiptMailboxCount) receiptMailboxCount.textContent = emails.length;
-
-            if (emails.length === 0) {
-                receiptList.innerHTML = `
-                    <li class="empty-mailbox-li">
-                        <div class="empty-mailbox-msg">
-                            <i class="fa-regular fa-folder-open"></i>
-                            <p>수신확인할 메일이 없습니다.</p>
-                        </div>
-                    </li>
-                `;
-                return;
-            }
-
-            receiptList.innerHTML = "";
-            emails.forEach((email) => {
-                const li = document.createElement("li");
-                li.className = "mail-row";
-                li.setAttribute("data-id", email.id);
-                
-                let timeStr = email.created;
-                try {
-                    const dateObj = new Date(email.created.replace(" ", "T"));
-                    if (!isNaN(dateObj.getTime())) {
-                        timeStr = dateObj.toLocaleDateString('ko-KR', { month: '2-digit', day: '2-digit' }) + " " + dateObj.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', hour12: false });
-                    }
-                } catch (e) {}
-
-                const isRead = email.is_read;
-                const receiptHtml = isRead 
-                    ? `<div class="col-receipt read-receipt" title="상대방이 읽음"><i class="fa-regular fa-envelope-open receipt-icon"></i> ${timeStr}</div>`
-                    : `<div class="col-receipt unread-receipt" title="상대방이 아직 읽지 않음">읽지않음</div>`;
-
-                const recipientInfo = getSenderInfo(email.recipient);
-
-                li.innerHTML = `
-                    <div class="col-check"><i class="fa-regular fa-square"></i></div>
-                    <div class="col-star"><i class="fa-regular fa-star"></i></div>
-                    <div class="col-read-icon"><i class="fa-solid fa-user-check" style="color: #9aa0a6; font-size: 13px;"></i></div>
-                    <div class="col-sender" title="${recipientInfo.fullDisplay}">${recipientInfo.name}</div>
-                    <div class="col-subject">
-                        <span class="subj-text">${email.subject}</span>
-                        <i class="fa-solid fa-magnifying-glass icon-hover" title="본문 검색"></i>
-                        <i class="fa-solid fa-arrow-up-right-from-square icon-hover" title="새 창으로 열기"></i>
-                    </div>
-                    <div class="col-time">${timeStr}</div>
-                    ${receiptHtml}
-                `;
-                receiptList.appendChild(li);
-            });
+            renderReceiptRows(currentReceiptEmails);
         } catch (err) {
             console.error("Error fetching receipt emails:", err);
             receiptList.innerHTML = `
@@ -2002,10 +2203,35 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
+    // Setup Page Size Dropdowns
+    const setupPageSizeDropdowns = () => {
+        document.querySelectorAll(".mail-per-page-select").forEach(sel => {
+            sel.value = String(mailPageSize);
+            sel.addEventListener("change", (e) => {
+                mailPageSize = parseInt(e.target.value, 10) || 20;
+                localStorage.setItem("naverMailPageSize", mailPageSize);
+                document.querySelectorAll(".mail-per-page-select").forEach(s => {
+                    s.value = String(mailPageSize);
+                });
+                inboxCurrentPage = 1;
+                sentCurrentPage = 1;
+                receiptCurrentPage = 1;
+                trashCurrentPage = 1;
+                renderInboxRows(currentInboxEmails);
+                if (currentSentEmails.length > 0) renderSentRows(currentSentEmails);
+                if (currentReceiptEmails.length > 0) renderReceiptRows(currentReceiptEmails);
+                renderTrashRows(getTrashMails());
+            });
+        });
+    };
+
     // Initialize list selection listeners
     setupListSelectionHandlers("inbox-list", "toolbar-select-all");
     setupListSelectionHandlers("sent-list", "toolbar-select-all-sent");
     setupListSelectionHandlers("trash-list", "toolbar-select-all-trash");
+
+    // Initialize page size dropdowns
+    setupPageSizeDropdowns();
 
     // Initial fetch of directory, received emails, trash badge & sent email counts on DOM load
     updateTrashBadges();
