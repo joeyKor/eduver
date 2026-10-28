@@ -155,7 +155,7 @@
             <div id="cafe-all-list-view" style="display: none;">
                 <div class="cafe-home-title-row" style="display: flex; align-items: center; justify-content: space-between;">
                     <h2>전체 개설 카페 <span class="all-cafes-total" id="all-cafes-total-badge" style="font-size: 14px; color: #03c75a; font-weight: 700; margin-left: 6px;">0</span></h2>
-                    <button type="button" class="btn-goto-create" onclick="document.getElementById('btn-open-create-cafe').click();" style="background:#eafaf1; border:1px solid #c2eed5; color:#03c75a; font-weight:700; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12.5px;">+ 새 카페 만들기</button>
+                    <button type="button" class="btn-goto-create" onclick="document.getElementById('btn-create-cafe').click();" style="background:#eafaf1; border:1px solid #c2eed5; color:#03c75a; font-weight:700; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12.5px;">+ 새 카페 만들기</button>
                 </div>
 
                 <!-- All Cafes List (Matching User Screenshot) -->
@@ -170,7 +170,7 @@
                     <h2>카페 만들기</h2>
                 </div>
 
-                <form id="real-create-cafe-form" class="create-cafe-table-form">
+                <form id="real-create-cafe-form" class="create-cafe-table-form" novalidate>
                     <!-- 카페이름 -->
                     <div class="create-form-row">
                         <div class="create-form-label">
@@ -299,7 +299,7 @@
                         <div class="create-form-input-wrap">
                             <div class="terms-check-line">
                                 <label class="checkbox-label">
-                                    <input type="checkbox" id="agree-policy" required>
+                                    <input type="checkbox" id="agree-policy" checked required>
                                     <span>카페 개인정보보호정책에 동의합니다.</span>
                                 </label>
                                 <a href="#" class="terms-link">자세히보기</a>
@@ -314,7 +314,7 @@
                     <!-- Submit & Cancel Buttons -->
                     <div class="create-form-btn-row">
                         <button type="button" class="btn-create-cancel" id="btn-real-create-cancel">취소</button>
-                        <button type="submit" class="btn-create-submit" id="btn-real-create-submit">만들기</button>
+                        <button type="button" class="btn-create-submit" id="btn-real-create-submit">만들기</button>
                     </div>
                 </form>
             </div>

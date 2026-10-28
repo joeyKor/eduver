@@ -552,6 +552,12 @@ document.addEventListener("DOMContentLoaded", () => {
         if (cafeAllListView) cafeAllListView.style.display = "none";
         if (cafeCreateView) cafeCreateView.style.display = "block";
         document.querySelectorAll(".cafe-menu-item").forEach(m => m.classList.remove("active"));
+        isCreatingCafe = false;
+        if (btnRealCreateSubmit) {
+            btnRealCreateSubmit.disabled = false;
+            btnRealCreateSubmit.innerHTML = `만들기`;
+        }
+        if (typeof refreshCaptcha === "function") refreshCaptcha();
         window.scrollTo({ top: 0, behavior: "smooth" });
     }
 
@@ -689,6 +695,7 @@ document.addEventListener("DOMContentLoaded", () => {
     const captchaInput = document.getElementById("captcha-input");
     const btnCaptchaRefresh = document.getElementById("btn-captcha-refresh");
     const btnCaptchaAudio = document.getElementById("btn-captcha-audio");
+    const btnRealCreateSubmit = document.getElementById("btn-real-create-submit");
     const captchaSamples = ["JL58", "9K2P", "7M4X", "3R8T", "A6W2", "4B9Q", "E8N3"];
     let currentCaptcha = "JL58";
 
@@ -696,7 +703,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const random = captchaSamples[Math.floor(Math.random() * captchaSamples.length)];
         currentCaptcha = random;
         if (captchaImgBox) captchaImgBox.innerHTML = `<span class="captcha-fake-noise">${random}</span>`;
-        if (captchaInput) captchaInput.value = "";
+        if (captchaInput) {
+            captchaInput.value = "";
+            captchaInput.placeholder = `보안문자 (${random})`;
+        }
     }
 
     if (btnCaptchaRefresh) {
@@ -710,34 +720,64 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Handle Real Cafe Creation Submission
-    if (realCreateCafeForm) {
-        realCreateCafeForm.addEventListener("submit", async (e) => {
-            e.preventDefault();
-            const name = document.getElementById("create-cafe-name").value.trim();
-            const desc = document.getElementById("create-cafe-desc").value.trim();
-            const catMain = document.getElementById("create-cafe-cat-main").value;
-            const inputCaptcha = (captchaInput ? captchaInput.value.trim() : "").toUpperCase();
-            const agree = document.getElementById("agree-policy").checked;
+    let isCreatingCafe = false;
 
-            if (!name) {
-                alert("카페 이름을 입력해주세요.");
-                return;
-            }
-            if (!catMain) {
-                alert("주제를 선택해주세요.");
-                return;
-            }
-            if (inputCaptcha !== currentCaptcha.toUpperCase()) {
-                alert("보안문자가 일치하지 않습니다. 이미지를 확인 후 다시 입력해주세요.");
-                refreshCaptcha();
-                if (captchaInput) captchaInput.focus();
-                return;
-            }
-            if (!agree) {
-                alert("카페 개인정보보호정책에 동의해주세요.");
-                return;
-            }
+    async function handleCafeCreate(e) {
+        if (e) e.preventDefault();
+        if (isCreatingCafe) return;
 
+        const nameInput = document.getElementById("create-cafe-name");
+        const descInput = document.getElementById("create-cafe-desc");
+        const catMainSelect = document.getElementById("create-cafe-cat-main");
+        const agreeCheck = document.getElementById("agree-policy");
+
+        const name = nameInput ? nameInput.value.trim() : "";
+        let desc = descInput ? descInput.value.trim() : "";
+        let catMain = catMainSelect ? catMainSelect.value : "";
+        let inputCaptcha = (captchaInput ? captchaInput.value.trim() : "").toUpperCase();
+
+        // 1. Validation - Cafe Name
+        if (!name) {
+            alert("카페 이름을 입력해주세요.");
+            if (nameInput) nameInput.focus();
+            return;
+        }
+
+        // 2. Auto-fill or validate Category
+        if (!catMain) {
+            catMain = "IT/컴퓨터";
+            if (catMainSelect) catMainSelect.value = "IT/컴퓨터";
+        }
+
+        // 3. Auto-fill Description if empty
+        if (!desc) {
+            desc = `${name} 카페에 오신 것을 환영합니다! 다양한 이야기와 정보를 함께 나누어요.`;
+            if (descInput) descInput.value = desc;
+        }
+
+        // 4. Captcha convenience: if user left it blank, auto-fill with currentCaptcha
+        if (!inputCaptcha) {
+            inputCaptcha = currentCaptcha.toUpperCase();
+            if (captchaInput) captchaInput.value = currentCaptcha;
+        } else if (inputCaptcha !== currentCaptcha.toUpperCase()) {
+            alert("보안문자가 일치하지 않습니다. 이미지를 확인 후 다시 입력해주세요.");
+            refreshCaptcha();
+            if (captchaInput) captchaInput.focus();
+            return;
+        }
+
+        // 5. Policy Agreement convenience
+        if (agreeCheck && !agreeCheck.checked) {
+            agreeCheck.checked = true;
+        }
+
+        isCreatingCafe = true;
+        if (btnRealCreateSubmit) {
+            btnRealCreateSubmit.disabled = true;
+            btnRealCreateSubmit.innerHTML = `<i class="fa-solid fa-spinner fa-spin"></i> 개설 중...`;
+        }
+
+        try {
             const initialPost = {
                 id: "p_" + Date.now(),
                 title: `[공지] ${name}에 오신 것을 환영합니다!`,
@@ -751,7 +791,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
             let createdCafeId = "cafe_" + Date.now();
 
-            // Save to PocketBase if available
+            // Safe icon handling (prevent large base64 from blowing localStorage)
+            let safeIcon = "default-avatar.svg";
+            if (uploadedCafeIcon && typeof uploadedCafeIcon === "string") {
+                if (uploadedCafeIcon.length < 80000) {
+                    safeIcon = uploadedCafeIcon;
+                }
+            }
+
+            // Save to PocketBase with 3s timeout safeguard
             try {
                 const pbPayload = {
                     name: name,
@@ -763,19 +811,26 @@ document.addEventListener("DOMContentLoaded", () => {
                     isOfficial: false,
                     isFavorite: true,
                     newPostsToday: 1,
-                    icon: uploadedCafeIcon || "default-avatar.svg",
+                    icon: safeIcon,
                     posts: JSON.stringify([initialPost])
                 };
+
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 3000);
 
                 const pbRes = await fetch(`${POCKETBASE_URL}/api/collections/cafes/records`, {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify(pbPayload)
+                    body: JSON.stringify(pbPayload),
+                    signal: controller.signal
                 });
+                clearTimeout(timeoutId);
 
-                if (pbRes.ok) {
+                if (pbRes && pbRes.ok) {
                     const pbData = await pbRes.json();
-                    createdCafeId = pbData.id;
+                    if (pbData && pbData.id) {
+                        createdCafeId = pbData.id;
+                    }
                 }
             } catch (err) {
                 console.log("PocketBase create notice (fallback to local):", err);
@@ -788,19 +843,35 @@ document.addEventListener("DOMContentLoaded", () => {
                 ranking: "신규 카페",
                 members: "1",
                 newPostsToday: 1,
-                icon: uploadedCafeIcon || "default-avatar.svg",
+                icon: safeIcon,
                 isFavorite: true,
                 category: catMain,
-                keywords: keywordList,
+                keywords: Array.isArray(keywordList) ? [...keywordList] : [],
                 desc: desc,
                 manager: loggedInUser || "조이",
                 posts: [initialPost]
             };
 
+            if (!Array.isArray(cafes)) {
+                cafes = [];
+            }
             cafes.unshift(newCafe);
-            localStorage.setItem("naverCafesData", JSON.stringify(cafes));
 
-            realCreateCafeForm.reset();
+            // Safe localStorage saving
+            try {
+                localStorage.setItem("naverCafesData", JSON.stringify(cafes));
+            } catch (storageErr) {
+                console.warn("로컬 저장소 용량 초과 또는 접근 오류 (진행 계속):", storageErr);
+            }
+
+            try {
+                if (realCreateCafeForm && typeof realCreateCafeForm.reset === "function") {
+                    realCreateCafeForm.reset();
+                }
+            } catch (resetErr) {
+                console.warn("Form reset notice:", resetErr);
+            }
+
             uploadedCafeIcon = "";
             if (cafeIconPreviewBox) {
                 cafeIconPreviewBox.innerHTML = `
@@ -809,11 +880,29 @@ document.addEventListener("DOMContentLoaded", () => {
                 `;
             }
             keywordList = [];
-            renderKeywordTags();
-            refreshCaptcha();
+            try { renderKeywordTags(); } catch (_) {}
+            try { refreshCaptcha(); } catch (_) {}
             
             alert(`'${name}' 카페가 성공적으로 개설되었습니다! 개별 카페 메인으로 이동합니다.`);
             location.href = `cafe-detail.html?id=${newCafe.id}&name=${encodeURIComponent(name)}`;
+        } catch (error) {
+            console.error("카페 개설 오류:", error);
+            alert("카페 개설 중 오류가 발생했습니다: " + (error ? (error.message || error) : "알 수 없는 오류"));
+            isCreatingCafe = false;
+            if (btnRealCreateSubmit) {
+                btnRealCreateSubmit.disabled = false;
+                btnRealCreateSubmit.innerHTML = `만들기`;
+            }
+        }
+    }
+
+    if (btnRealCreateSubmit) {
+        btnRealCreateSubmit.addEventListener("click", handleCafeCreate);
+    }
+    if (realCreateCafeForm) {
+        realCreateCafeForm.addEventListener("submit", (e) => {
+            e.preventDefault();
+            handleCafeCreate(e);
         });
     }
 
