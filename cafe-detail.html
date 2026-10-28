@@ -12,6 +12,199 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="cafe-detail.css?v=20260823_latest">
     <script>
+        function safeSaveCafesDataDirect(cafesArray) {
+            if (!cafesArray || !Array.isArray(cafesArray)) return;
+            try {
+                localStorage.setItem("naverCafesData", JSON.stringify(cafesArray));
+            } catch (e) {
+                console.warn("Storage quota exceeded on naverCafesData! Trimming heavy post bodies for local cache...", e);
+                try {
+                    var slimCafes = cafesArray.map(function(c) {
+                        return Object.assign({}, c, {
+                            posts: Array.isArray(c.posts) ? c.posts.slice(0, 30).map(function(p, idx) {
+                                if (idx > 2 && p.content && p.content.length > 500) {
+                                    return Object.assign({}, p, { content: p.content.replace(/<img[^>]*>/gi, "[이미지]") });
+                                }
+                                return p;
+                            }) : []
+                        });
+                    });
+                    localStorage.setItem("naverCafesData", JSON.stringify(slimCafes));
+                } catch (e2) {
+                    try {
+                        var compactCafes = cafesArray.map(function(c) {
+                            return Object.assign({}, c, {
+                                icon: (c.icon && c.icon.length > 5000) ? "default-avatar.svg" : c.icon,
+                                posts: Array.isArray(c.posts) ? c.posts.slice(0, 15).map(function(p) {
+                                    return {
+                                        id: p.id,
+                                        title: p.title,
+                                        author: p.author,
+                                        time: p.time,
+                                        board: p.board,
+                                        isNotice: p.isNotice,
+                                        views: p.views || 0,
+                                        likes: p.likes || 0,
+                                        commentsCount: Array.isArray(p.comments) ? p.comments.length : (p.commentsCount || 0)
+                                    };
+                                }) : []
+                            });
+                        });
+                        localStorage.setItem("naverCafesData", JSON.stringify(compactCafes));
+                    } catch (e3) {
+                        console.error("Unable to save cafes to localStorage:", e3);
+                    }
+                }
+            }
+        }
+        window.safeSaveCafesData = safeSaveCafesDataDirect;
+
+        function compressCafeImageFileDirect(file, maxWidth, quality) {
+            maxWidth = maxWidth || 800;
+            quality = quality || 0.72;
+            return new Promise(function(resolve) {
+                if (!file || !file.type || file.type.indexOf("image/") !== 0) {
+                    resolve("");
+                    return;
+                }
+                var reader = new FileReader();
+                reader.onload = function(e) {
+                    var img = new Image();
+                    img.onload = function() {
+                        var width = img.width;
+                        var height = img.height;
+                        if (width > maxWidth) {
+                            height = Math.round((height * maxWidth) / width);
+                            width = maxWidth;
+                        }
+                        var canvas = document.createElement("canvas");
+                        canvas.width = width;
+                        canvas.height = height;
+                        var ctx = canvas.getContext("2d");
+                        ctx.drawImage(img, 0, 0, width, height);
+                        resolve(canvas.toDataURL("image/jpeg", quality));
+                    };
+                    img.onerror = function() { resolve(e.target.result); };
+                    img.src = e.target.result;
+                };
+                reader.onerror = function() { resolve(""); };
+                reader.readAsDataURL(file);
+            });
+        }
+        window.compressCafeImageFile = compressCafeImageFileDirect;
+
+        async function fetchAndMergeCafeRecordDirect(cafeObj, mutatorFn) {
+            var pbUrl = "https://pb.joyfamkr.synology.me";
+            var pbId = cafeObj && cafeObj.id;
+            if (!pbId || String(pbId).indexOf("cafe_") === 0) {
+                if (cafeObj && cafeObj.name) {
+                    try {
+                        var sRes = await fetch(pbUrl + "/api/collections/cafes/records?filter=(name='" + encodeURIComponent(cafeObj.name) + "')");
+                        if (sRes.ok) {
+                            var sData = await sRes.json();
+                            if (sData.items && sData.items.length > 0) {
+                                pbId = sData.items[0].id;
+                                cafeObj.id = pbId;
+                            }
+                        }
+                    } catch (e) {}
+                }
+            }
+
+            if (pbId && String(pbId).indexOf("cafe_") !== 0) {
+                try {
+                    var res = await fetch(pbUrl + "/api/collections/cafes/records/" + pbId);
+                    if (res.ok) {
+                        var remote = await res.json();
+                        var remotePosts = remote.posts;
+                        if (typeof remotePosts === "string") {
+                            try { remotePosts = JSON.parse(remotePosts); } catch (e) { remotePosts = []; }
+                        }
+                        if (!Array.isArray(remotePosts)) remotePosts = [];
+
+                        var localPosts = cafeObj.posts;
+                        if (typeof localPosts === "string") {
+                            try { localPosts = JSON.parse(localPosts); } catch (e) { localPosts = []; }
+                        }
+                        if (!Array.isArray(localPosts)) localPosts = [];
+
+                        // Merge remote and local posts by id (preserve any posts created concurrently on server)
+                        var mergedPosts = remotePosts.slice();
+                        localPosts.forEach(function(lp) {
+                            var rIdx = mergedPosts.findIndex(function(rp) { return rp.id === lp.id; });
+                            if (rIdx === -1) {
+                                mergedPosts.unshift(lp);
+                            } else {
+                                // Merge comments of existing post
+                                var rComms = Array.isArray(mergedPosts[rIdx].comments) ? mergedPosts[rIdx].comments : [];
+                                var lComms = Array.isArray(lp.comments) ? lp.comments : [];
+                                var mergedComms = rComms.slice();
+                                lComms.forEach(function(lc) {
+                                    if (!mergedComms.some(function(rc) { return rc.id === lc.id; })) {
+                                        mergedComms.push(lc);
+                                    }
+                                });
+                                mergedPosts[rIdx] = Object.assign({}, mergedPosts[rIdx], lp, {
+                                    comments: mergedComms,
+                                    commentsCount: mergedComms.length
+                                });
+                            }
+                        });
+                        cafeObj.posts = mergedPosts;
+
+                        var remoteMembers = remote.joinedMembers;
+                        if (typeof remoteMembers === "string") {
+                            try { remoteMembers = JSON.parse(remoteMembers); } catch (e) { remoteMembers = []; }
+                        }
+                        if (Array.isArray(remoteMembers)) {
+                            var localMembers = Array.isArray(cafeObj.joinedMembers) ? cafeObj.joinedMembers : [];
+                            remoteMembers.forEach(function(rm) {
+                                if (!localMembers.includes(rm)) localMembers.push(rm);
+                            });
+                            cafeObj.joinedMembers = localMembers;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("Fetch before merge warning:", e);
+                }
+            }
+
+            if (typeof mutatorFn === "function") {
+                mutatorFn(cafeObj);
+            }
+
+            // Save to localStorage safely
+            try {
+                var cafesData = JSON.parse(localStorage.getItem("naverCafesData") || "[]");
+                var cIdx = cafesData.findIndex(function(c) { return String(c.id) === String(cafeObj.id); });
+                if (cIdx !== -1) {
+                    cafesData[cIdx] = Object.assign({}, cafesData[cIdx], cafeObj);
+                } else {
+                    cafesData.unshift(cafeObj);
+                }
+                safeSaveCafesDataDirect(cafesData);
+            } catch (e) {}
+
+            // Patch back to PocketBase
+            if (pbId && String(pbId).indexOf("cafe_") !== 0) {
+                try {
+                    await fetch(pbUrl + "/api/collections/cafes/records/" + pbId, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            posts: cafeObj.posts || [],
+                            newPostsToday: cafeObj.newPostsToday || (cafeObj.posts ? cafeObj.posts.length : 1),
+                            members: String(cafeObj.members || "1"),
+                            joinedMembers: cafeObj.joinedMembers || []
+                        })
+                    });
+                } catch (e) {
+                    console.warn("PB patch error:", e);
+                }
+            }
+        }
+        window.fetchAndMergeCafeRecord = fetchAndMergeCafeRecordDirect;
+
         function openCafeJoinViewDirect() {
             var isAuth = localStorage.getItem("naverIsLoggedIn") === "true";
             if (!isAuth) {
@@ -104,41 +297,16 @@
             }
 
             var memberKey = loggedInId ? customNick + " (" + loggedInId + ")" : customNick;
-            if (!cafe.joinedMembers.includes(memberKey) && !cafe.joinedMembers.includes(customNick)) {
-                cafe.joinedMembers.push(memberKey);
-            }
-
-            // Increment member count
-            var curCount = parseInt((cafe.members || "1").replace(/,/g, ""));
-            curCount = isNaN(curCount) ? 2 : curCount + 1;
-            cafe.members = curCount.toLocaleString();
-            window.currentCafeRecord = cafe;
-
-            // Sync to PocketBase Async
-            var cafeId = cafe.id || "vncvhnzfduln0p8";
-            if (cafeId && !cafeId.startsWith("cafe_")) {
-                try {
-                    await fetch('https://pb.joyfamkr.synology.me/api/collections/cafes/records/' + cafeId, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            members: cafe.members,
-                            joinedMembers: cafe.joinedMembers
-                        })
-                    });
-                } catch(err) { console.log("PB join patch error:", err); }
-            }
-
-            // Sync localStorage
-            try {
-                var cafesData = JSON.parse(localStorage.getItem("naverCafesData") || "[]");
-                var cIdx = cafesData.findIndex(function(c) { return String(c.id) === String(cafeId); });
-                if (cIdx !== -1) {
-                    cafesData[cIdx].members = cafe.members;
-                    cafesData[cIdx].joinedMembers = cafe.joinedMembers;
+            await fetchAndMergeCafeRecordDirect(cafe, function(c) {
+                if (!Array.isArray(c.joinedMembers)) c.joinedMembers = [];
+                if (!c.joinedMembers.includes(memberKey) && !c.joinedMembers.includes(customNick)) {
+                    c.joinedMembers.push(memberKey);
                 }
-                localStorage.setItem("naverCafesData", JSON.stringify(cafesData));
-            } catch(err) {}
+                var curCount = parseInt((c.members || "1").replace(/,/g, ""));
+                curCount = isNaN(curCount) ? 2 : Math.max(curCount + 1, c.joinedMembers.length + 1);
+                c.members = curCount.toLocaleString();
+            });
+            window.currentCafeRecord = cafe;
 
             // Update UI
             var memberEl = document.getElementById("cafe-member-count");
@@ -271,32 +439,11 @@
 
             if (confirm("이 게시글을 삭제하시겠습니까?\n삭제된 글은 복구할 수 없습니다.")) {
                 var cafe = window.currentCafeRecord || {};
-                var posts = typeof cafe.posts === 'string' ? JSON.parse(cafe.posts) : (Array.isArray(cafe.posts) ? cafe.posts : []);
-                cafe.posts = posts.filter(function(p) { return p.id !== targetId; });
+                await fetchAndMergeCafeRecordDirect(cafe, function(c) {
+                    var posts = typeof c.posts === 'string' ? JSON.parse(c.posts) : (Array.isArray(c.posts) ? c.posts : []);
+                    c.posts = posts.filter(function(p) { return p.id !== targetId; });
+                });
                 window.currentCafeRecord = cafe;
-
-                // Sync to localStorage
-                try {
-                    var cafesData = JSON.parse(localStorage.getItem("naverCafesData") || "[]");
-                    var cafeId = cafe.id || "vncvhnzfduln0p8";
-                    var cIdx = cafesData.findIndex(function(c) { return String(c.id) === String(cafeId); });
-                    if (cIdx !== -1) {
-                        cafesData[cIdx].posts = cafe.posts;
-                    }
-                    localStorage.setItem("naverCafesData", JSON.stringify(cafesData));
-                } catch(e) {}
-
-                // Sync to PocketBase
-                var cId = cafe.id || "vncvhnzfduln0p8";
-                if (cId && !cId.startsWith("cafe_")) {
-                    try {
-                        await fetch('https://pb.joyfamkr.synology.me/api/collections/cafes/records/' + cId, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ posts: cafe.posts })
-                        });
-                    } catch(err) {}
-                }
 
                 alert("게시글이 삭제되었습니다.");
                 selectBoardDirect("all");
@@ -483,7 +630,7 @@
         }
         window.renderComments = renderCommentsDirect;
 
-        function submitCommentDirect() {
+        async function submitCommentDirect() {
             var isAuth = localStorage.getItem("naverIsLoggedIn") === "true";
             if (!isAuth) {
                 alert("댓글을 작성하려면 먼저 로그인이 필요합니다.");
@@ -500,13 +647,6 @@
 
             var postId = window.currentViewingPostId;
             var cafe = window.currentCafeRecord || {};
-            var rawPosts = cafe.posts || [];
-            var posts = typeof rawPosts === 'string' ? JSON.parse(rawPosts) : (Array.isArray(rawPosts) ? rawPosts : []);
-            var post = posts.find(function(p) { return p.id === postId; });
-            if (!post) return;
-
-            if (!Array.isArray(post.comments)) post.comments = [];
-
             var now = new Date();
             var year = now.getFullYear();
             var month = String(now.getMonth() + 1).padStart(2, "0");
@@ -514,42 +654,31 @@
             var hours = String(now.getHours()).padStart(2, "0");
             var mins = String(now.getMinutes()).padStart(2, "0");
             var timeStr = year + "." + month + "." + day + ". " + hours + ":" + mins;
-
             var activeNick = (localStorage.getItem("naverLoggedInUser") || "새회원").trim();
 
-            post.comments.push({
+            var newComment = {
                 id: "c_" + Date.now(),
                 author: activeNick,
                 time: timeStr,
                 text: text
-            });
+            };
 
-            // Update posts in currentCafeRecord
-            cafe.posts = posts;
-            window.currentCafeRecord = cafe;
-
-            // Sync localStorage
-            try {
-                var cafesData = JSON.parse(localStorage.getItem("naverCafesData") || "[]");
-                var cIdx = cafesData.findIndex(function(c) { return String(c.id) === String(cafe.id); });
-                if (cIdx !== -1) {
-                    cafesData[cIdx].posts = posts;
-                    localStorage.setItem("naverCafesData", JSON.stringify(cafesData));
+            var targetPost = null;
+            await fetchAndMergeCafeRecordDirect(cafe, function(c) {
+                var rawPosts = c.posts || [];
+                var posts = typeof rawPosts === 'string' ? JSON.parse(rawPosts) : (Array.isArray(rawPosts) ? rawPosts : []);
+                var post = posts.find(function(p) { return p.id === postId; });
+                if (post) {
+                    if (!Array.isArray(post.comments)) post.comments = [];
+                    if (!post.comments.some(function(cm) { return cm.id === newComment.id; })) {
+                        post.comments.push(newComment);
+                    }
+                    post.commentsCount = post.comments.length;
+                    targetPost = post;
                 }
-            } catch(e) {}
-
-            // Async sync to PocketBase
-            if (cafe.id && !cafe.id.startsWith("cafe_")) {
-                try {
-                    fetch("https://pb.joyfamkr.synology.me/api/collections/cafes/records/" + cafe.id, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            posts: JSON.stringify(posts)
-                        })
-                    }).catch(function(err) { console.log("PB comment sync err:", err); });
-                } catch(e) {}
-            }
+                c.posts = posts;
+            });
+            window.currentCafeRecord = cafe;
 
             // Clear input & reset button
             if (input) input.value = "";
@@ -557,7 +686,9 @@
             if (submitBtn) submitBtn.classList.remove("active");
 
             // Re-render comments list immediately
-            renderCommentsDirect(post);
+            if (targetPost) {
+                renderCommentsDirect(targetPost);
+            }
         }
         window.submitComment = submitCommentDirect;
 
@@ -566,25 +697,23 @@
             if (fileInput) fileInput.click();
         };
 
-        window.handlePhotoUploadDirect = function(input) {
+        window.handlePhotoUploadDirect = async function(input) {
             if (input && input.files && input.files.length > 0) {
                 var contentEl = document.getElementById("full-write-content");
-                Array.from(input.files).forEach(function(file) {
-                    var reader = new FileReader();
-                    reader.onload = function(e) {
-                        if (contentEl) {
-                            contentEl.focus();
-                            var imgHtml = '<p><img src="' + e.target.result + '" alt="첨부 이미지" style="max-width: 100%; height: auto; border-radius: 8px; margin: 12px 0; display: block; box-shadow: 0 4px 12px rgba(0,0,0,0.08);"></p><p><br></p>';
-                            document.execCommand("insertHTML", false, imgHtml);
-                        }
-                    };
-                    reader.readAsDataURL(file);
-                });
+                var files = Array.from(input.files);
                 input.value = "";
+                for (var i = 0; i < files.length; i++) {
+                    var compressedUrl = await compressCafeImageFileDirect(files[i], 800, 0.72);
+                    if (compressedUrl && contentEl) {
+                        contentEl.focus();
+                        var imgHtml = '<p><img src="' + compressedUrl + '" alt="첨부 이미지" style="max-width: 100%; height: auto; border-radius: 8px; margin: 12px 0; display: block; box-shadow: 0 4px 12px rgba(0,0,0,0.08);"></p><p><br></p>';
+                        document.execCommand("insertHTML", false, imgHtml);
+                    }
+                }
             }
         };
 
-        function handleFullSubmitDirect() {
+        async function handleFullSubmitDirect() {
             var boardEl = document.getElementById("full-write-board");
             var prefixEl = document.getElementById("full-write-prefix");
             var titleEl = document.getElementById("full-write-title");
@@ -611,39 +740,22 @@
             var day = String(now.getDate()).padStart(2, "0");
             var timeStr = year + "." + month + "." + day + ".";
 
+            if (!window.currentCafeRecord) window.currentCafeRecord = {};
+
             if (window.currentEditingPostId) {
                 var editedId = window.currentEditingPostId;
                 window.currentEditingPostId = null;
 
-                if (window.currentCafeRecord && Array.isArray(window.currentCafeRecord.posts)) {
-                    var pIdx = window.currentCafeRecord.posts.findIndex(function(p) { return p.id === editedId; });
+                await fetchAndMergeCafeRecordDirect(window.currentCafeRecord, function(c) {
+                    if (!Array.isArray(c.posts)) c.posts = [];
+                    var pIdx = c.posts.findIndex(function(p) { return p.id === editedId; });
                     if (pIdx !== -1) {
-                        window.currentCafeRecord.posts[pIdx].title = title;
-                        window.currentCafeRecord.posts[pIdx].board = board;
-                        window.currentCafeRecord.posts[pIdx].content = contentHtml || (title + " 본문 내용입니다.");
-                        window.currentCafeRecord.posts[pIdx].isNotice = isNotice;
+                        c.posts[pIdx].title = title;
+                        c.posts[pIdx].board = board;
+                        c.posts[pIdx].content = contentHtml || (title + " 본문 내용입니다.");
+                        c.posts[pIdx].isNotice = isNotice;
                     }
-                }
-
-                // Sync to PocketBase Async
-                var cafeId = (window.currentCafeRecord && window.currentCafeRecord.id) || "vncvhnzfduln0p8";
-                if (cafeId && !cafeId.startsWith("cafe_")) {
-                    fetch('https://pb.joyfamkr.synology.me/api/collections/cafes/records/' + cafeId, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ posts: window.currentCafeRecord.posts })
-                    }).catch(function(err){ console.log("PB direct patch error:", err); });
-                }
-
-                // Update localStorage
-                try {
-                    var cafesData = JSON.parse(localStorage.getItem("naverCafesData") || "[]");
-                    var cIdx = cafesData.findIndex(function(c) { return String(c.id) === String(cafeId); });
-                    if (cIdx !== -1) {
-                        cafesData[cIdx].posts = window.currentCafeRecord.posts;
-                    }
-                    localStorage.setItem("naverCafesData", JSON.stringify(cafesData));
-                } catch(e){}
+                });
 
                 var wView = document.getElementById("cafe-write-full-view");
                 var grid = document.querySelector(".cafe-layout-grid");
@@ -669,16 +781,13 @@
                 isNotice: isNotice
             };
 
-            // Update in window.currentCafeRecord
-            if (!window.currentCafeRecord) window.currentCafeRecord = {};
-            if (!Array.isArray(window.currentCafeRecord.posts)) {
-                if (typeof window.currentCafeRecord.posts === 'string') {
-                    try { window.currentCafeRecord.posts = JSON.parse(window.currentCafeRecord.posts); } catch(e) { window.currentCafeRecord.posts = []; }
-                } else {
-                    window.currentCafeRecord.posts = [];
+            await fetchAndMergeCafeRecordDirect(window.currentCafeRecord, function(c) {
+                if (!Array.isArray(c.posts)) c.posts = [];
+                if (!c.posts.some(function(p) { return p.id === newPost.id; })) {
+                    c.posts.unshift(newPost);
                 }
-            }
-            window.currentCafeRecord.posts.unshift(newPost);
+                c.newPostsToday = (c.newPostsToday || 0) + 1;
+            });
 
             // Re-render table directly
             var tbody = document.getElementById('cafe-post-tbody');
@@ -704,26 +813,6 @@
                     tbody.appendChild(tr);
                 });
             }
-
-            // Sync to PocketBase Async
-            var cafeId = window.currentCafeRecord.id || "vncvhnzfduln0p8";
-            if (cafeId && !cafeId.startsWith("cafe_")) {
-                fetch('https://pb.joyfamkr.synology.me/api/collections/cafes/records/' + cafeId, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ posts: window.currentCafeRecord.posts })
-                }).catch(function(err){ console.log("PB direct patch error:", err); });
-            }
-
-            // Update localStorage
-            try {
-                var cafesData = JSON.parse(localStorage.getItem("naverCafesData") || "[]");
-                var cIdx = cafesData.findIndex(function(c) { return String(c.id) === String(cafeId); });
-                if (cIdx !== -1) {
-                    cafesData[cIdx].posts = window.currentCafeRecord.posts;
-                }
-                localStorage.setItem("naverCafesData", JSON.stringify(cafesData));
-            } catch(e){}
 
             // Switch to detail view
             var wView = document.getElementById("cafe-write-full-view");
@@ -1121,61 +1210,35 @@
             var curId = (localStorage.getItem("naverLoggedInUserId") || "").trim();
             var curUsername = (localStorage.getItem("naverLoggedInUsername") || "").trim();
 
-            // 1. Remove from joinedMembers
-            var members = cafe.joinedMembers || [];
-            if (typeof members === "string") {
-                try { members = JSON.parse(members); } catch(e) { members = [members]; }
-            }
-            if (!Array.isArray(members)) members = [];
-
-            var updatedMembers = members.filter(function(m) {
-                if (typeof m === 'string') {
-                    if (m === curUser) return false;
-                    if (curId && (m === curId || m.indexOf("(" + curId + ")") > -1)) return false;
-                    if (curUsername && (m === curUsername || m.indexOf("(" + curUsername + ")") > -1)) return false;
-                    if (m.startsWith(curUser + " ")) return false;
-                } else if (m && typeof m === 'object') {
-                    if (m.nickname === curUser) return false;
-                    if (curId && (m.id === curId || m.userId === curId)) return false;
-                    if (curUsername && (m.username === curUsername || m.idMask === curUsername)) return false;
+            await fetchAndMergeCafeRecordDirect(cafe, function(c) {
+                var members = c.joinedMembers || [];
+                if (typeof members === "string") {
+                    try { members = JSON.parse(members); } catch(e) { members = [members]; }
                 }
-                return true;
-            });
-            cafe.joinedMembers = updatedMembers;
+                if (!Array.isArray(members)) members = [];
 
-            // 2. Decrement member count
-            var curCount = parseInt((cafe.members || "1").replace(/,/g, ""));
-            curCount = Math.max(1, isNaN(curCount) ? 1 : curCount - 1);
-            cafe.members = curCount.toLocaleString();
+                var updatedMembers = members.filter(function(m) {
+                    if (typeof m === 'string') {
+                        if (m === curUser) return false;
+                        if (curId && (m === curId || m.indexOf("(" + curId + ")") > -1)) return false;
+                        if (curUsername && (m === curUsername || m.indexOf("(" + curUsername + ")") > -1)) return false;
+                        if (m.startsWith(curUser + " ")) return false;
+                    } else if (m && typeof m === 'object') {
+                        if (m.nickname === curUser) return false;
+                        if (curId && (m.id === curId || m.userId === curId)) return false;
+                        if (curUsername && (m.username === curUsername || m.idMask === curUsername)) return false;
+                    }
+                    return true;
+                });
+                c.joinedMembers = updatedMembers;
+
+                var curCount = parseInt((c.members || "1").replace(/,/g, ""));
+                curCount = Math.max(1, isNaN(curCount) ? 1 : curCount - 1);
+                c.members = curCount.toLocaleString();
+            });
             window.currentCafeRecord = cafe;
 
-            // 3. Sync localStorage
-            var cafeId = cafe.id || "vncvhnzfduln0p8";
-            try {
-                var cafesData = JSON.parse(localStorage.getItem("naverCafesData") || "[]");
-                var cIdx = cafesData.findIndex(function(c) { return String(c.id) === String(cafeId); });
-                if (cIdx !== -1) {
-                    cafesData[cIdx].members = cafe.members;
-                    cafesData[cIdx].joinedMembers = cafe.joinedMembers;
-                }
-                localStorage.setItem("naverCafesData", JSON.stringify(cafesData));
-            } catch(e) {}
-
-            // 4. Sync PocketBase PATCH
-            if (cafeId && !cafeId.startsWith("cafe_")) {
-                try {
-                    await fetch('https://pb.joyfamkr.synology.me/api/collections/cafes/records/' + cafeId, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            members: cafe.members,
-                            joinedMembers: cafe.joinedMembers
-                        })
-                    });
-                } catch(e) {}
-            }
-
-            // 5. Update UI
+            // Update UI
             var memberEl = document.getElementById("cafe-member-count");
             var btnJoin = document.getElementById("btn-sidebar-join-cafe");
             var btnWrite = document.getElementById("btn-open-write-modal");

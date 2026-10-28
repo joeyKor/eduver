@@ -41,7 +41,65 @@ document.addEventListener("DOMContentLoaded", () => {
     const commentWriteUserName = document.getElementById("comment-write-user-name");
     if (commentWriteUserName) commentWriteUserName.textContent = loggedInUser || "익명";
 
-    // 3. Load cafe dataset
+    // 3. Load cafe dataset & Safe LocalStorage / Image / Merge Helpers
+    function safeSaveCafesData(cafesArray) {
+        if (typeof window.safeSaveCafesData === "function") {
+            window.safeSaveCafesData(cafesArray);
+            return;
+        }
+        if (!cafesArray || !Array.isArray(cafesArray)) return;
+        try {
+            localStorage.setItem("naverCafesData", JSON.stringify(cafesArray));
+        } catch (e) {
+            try {
+                const slimCafes = cafesArray.map(c => ({
+                    ...c,
+                    posts: Array.isArray(c.posts) ? c.posts.slice(0, 30).map((p, idx) => {
+                        if (idx > 2 && p.content && p.content.length > 500) {
+                            return { ...p, content: p.content.replace(/<img[^>]*>/gi, "[이미지]") };
+                        }
+                        return p;
+                    }) : []
+                }));
+                localStorage.setItem("naverCafesData", JSON.stringify(slimCafes));
+            } catch (e2) {}
+        }
+    }
+
+    function compressCafeImageFile(file, maxWidth = 800, quality = 0.72) {
+        if (typeof window.compressCafeImageFile === "function") {
+            return window.compressCafeImageFile(file, maxWidth, quality);
+        }
+        return new Promise((resolve) => {
+            if (!file || !file.type.startsWith("image/")) {
+                resolve("");
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    let width = img.width;
+                    let height = img.height;
+                    if (width > maxWidth) {
+                        height = Math.round((height * maxWidth) / width);
+                        width = maxWidth;
+                    }
+                    const canvas = document.createElement("canvas");
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0, width, height);
+                    resolve(canvas.toDataURL("image/jpeg", quality));
+                };
+                img.onerror = () => resolve(e.target.result);
+                img.src = e.target.result;
+            };
+            reader.onerror = () => resolve("");
+            reader.readAsDataURL(file);
+        });
+    }
+
     let cafes = JSON.parse(localStorage.getItem("naverCafesData") || "[]");
 
     const searchName = urlParams.get("name") || "";
@@ -244,7 +302,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 } else {
                     cafes.unshift(currentCafe);
                 }
-                localStorage.setItem("naverCafesData", JSON.stringify(cafes));
+                safeSaveCafesData(cafes);
             }
         } catch (e) {
             console.log("PocketBase cafe sync error:", e);
@@ -503,18 +561,32 @@ document.addEventListener("DOMContentLoaded", () => {
         renderPostTable();
     }
 
-    // Save cafe state locally and to PocketBase
-    async function saveCafeState() {
-        // 1. LocalStorage
+    // Save cafe state locally and to PocketBase (with Fetch-Before-Merge concurrency protection)
+    async function saveCafeState(mutatorFn) {
+        if (typeof window.fetchAndMergeCafeRecord === "function") {
+            await window.fetchAndMergeCafeRecord(currentCafe, mutatorFn);
+            if (window.currentCafeRecord) {
+                window.currentCafeRecord = currentCafe;
+            }
+            const idx = cafes.findIndex(c => String(c.id) === String(currentCafe.id));
+            if (idx !== -1) cafes[idx] = currentCafe;
+            else cafes.unshift(currentCafe);
+            safeSaveCafesData(cafes);
+            return true;
+        }
+
+        if (typeof mutatorFn === "function") {
+            mutatorFn(currentCafe);
+        }
         const idx = cafes.findIndex(c => String(c.id) === String(currentCafe.id));
         if (idx !== -1) {
             cafes[idx] = currentCafe;
         } else {
             cafes.unshift(currentCafe);
         }
-        localStorage.setItem("naverCafesData", JSON.stringify(cafes));
+        safeSaveCafesData(cafes);
 
-        // 2. PocketBase Async Sync
+        // PocketBase Async Sync
         if (currentCafe.id && !currentCafe.id.startsWith("cafe_")) {
             try {
                 await fetch(`${POCKETBASE_URL}/api/collections/cafes/records/${currentCafe.id}`, {
@@ -531,6 +603,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 console.log("PB Sync patch notice:", err);
             }
         }
+        return true;
     }
 
     function showWriteView() {
@@ -866,53 +939,10 @@ document.addEventListener("DOMContentLoaded", () => {
     });
 
     // 9. Delete Posts Functionality (Table Checkbox Delete & Detail View Delete)
-    async function saveCafeState() {
-        const idx = cafes.findIndex(c => c.id === currentCafe.id);
-        if (idx !== -1) cafes[idx] = currentCafe;
-        localStorage.setItem("naverCafesData", JSON.stringify(cafes));
-
-        // Sync to PocketBase
-        try {
-            let pbId = currentCafe.id;
-            
-            // If currentCafe.id is not a 15-character PocketBase record ID, find the real record
-            if (!pbId || pbId.startsWith("cafe_")) {
-                // Try finding by name
-                let searchRes = await fetch(`${POCKETBASE_URL}/api/collections/cafes/records?filter=(name='${encodeURIComponent(currentCafe.name)}')`);
-                if (searchRes.ok) {
-                    let searchData = await searchRes.json();
-                    if (searchData.items && searchData.items.length > 0) {
-                        pbId = searchData.items[0].id;
-                        currentCafe.id = pbId;
-                    }
-                }
-            }
-
-            const payload = {
-                posts: currentCafe.posts || [],
-                newPostsToday: currentCafe.newPostsToday || (currentCafe.posts ? currentCafe.posts.length : 1),
-                members: String(currentCafe.members || "1"),
-                joinedMembers: currentCafe.joinedMembers || []
-            };
-
-            const patchRes = await fetch(`${POCKETBASE_URL}/api/collections/cafes/records/${pbId}`, {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload)
-            });
-            const resultData = await patchRes.json();
-            console.log("PocketBase cafe sync status:", patchRes.status, resultData);
-            return patchRes.ok;
-        } catch (err) {
-            console.log("PB sync error:", err);
-            return false;
-        }
-    }
-
     // Batch Delete selected posts from table
     const btnBoardDelete = document.getElementById("btn-board-delete");
     if (btnBoardDelete) {
-        btnBoardDelete.addEventListener("click", () => {
+        btnBoardDelete.addEventListener("click", async () => {
             const checkedItems = document.querySelectorAll(".post-check-item:checked");
             if (checkedItems.length === 0) {
                 alert("삭제할 게시글을 선택해주세요.");
@@ -921,8 +951,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
             if (confirm(`선택한 ${checkedItems.length}개의 게시글을 삭제하시겠습니까?`)) {
                 const idsToDelete = Array.from(checkedItems).map(i => i.getAttribute("data-id"));
-                currentCafe.posts = (currentCafe.posts || []).filter(p => !idsToDelete.includes(p.id));
-                saveCafeState();
+                await saveCafeState((c) => {
+                    c.posts = (c.posts || []).filter(p => !idsToDelete.includes(p.id));
+                });
                 renderPostTable();
                 alert("게시글이 삭제되었습니다.");
             }
@@ -934,11 +965,13 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnDetailBottomEdit = document.getElementById("btn-detail-bottom-edit");
     const btnDetailBottomDelete = document.getElementById("btn-detail-bottom-delete");
     
-    function deleteCurrentPost() {
+    async function deleteCurrentPost() {
         if (confirm("이 게시글을 삭제하시겠습니까?\n삭제된 글은 복구할 수 없습니다.")) {
             if (currentViewingPostId) {
-                currentCafe.posts = (currentCafe.posts || []).filter(p => p.id !== currentViewingPostId);
-                saveCafeState();
+                const targetId = currentViewingPostId;
+                await saveCafeState((c) => {
+                    c.posts = (c.posts || []).filter(p => p.id !== targetId);
+                });
             }
             alert("게시글이 삭제되었습니다.");
             showBoardList();
@@ -1029,21 +1062,16 @@ document.addEventListener("DOMContentLoaded", () => {
     const photoFileInput = document.getElementById("write-photo-upload") || document.getElementById("full-write-photo-file");
     if (btnToolPhoto && photoFileInput) {
         btnToolPhoto.addEventListener("click", () => photoFileInput.click());
-        photoFileInput.addEventListener("change", (e) => {
-            const files = e.target.files;
-            if (files && files.length > 0) {
-                Array.from(files).forEach(file => {
-                    const reader = new FileReader();
-                    reader.onload = (re) => {
-                        if (fullWriteContent) {
-                            fullWriteContent.focus();
-                            const imgHtml = `<p><img src="${re.target.result}" alt="첨부 이미지" style="max-width: 100%; height: auto; border-radius: 8px; margin: 12px 0; display: block; box-shadow: 0 4px 12px rgba(0,0,0,0.08);"></p><p><br></p>`;
-                            document.execCommand("insertHTML", false, imgHtml);
-                        }
-                    };
-                    reader.readAsDataURL(file);
-                });
-                photoFileInput.value = "";
+        photoFileInput.addEventListener("change", async (e) => {
+            const files = e.target.files ? Array.from(e.target.files) : [];
+            photoFileInput.value = "";
+            for (const file of files) {
+                const compressedUrl = await compressCafeImageFile(file, 800, 0.72);
+                if (compressedUrl && fullWriteContent) {
+                    fullWriteContent.focus();
+                    const imgHtml = `<p><img src="${compressedUrl}" alt="첨부 이미지" style="max-width: 100%; height: auto; border-radius: 8px; margin: 12px 0; display: block; box-shadow: 0 4px 12px rgba(0,0,0,0.08);"></p><p><br></p>`;
+                    document.execCommand("insertHTML", false, imgHtml);
+                }
             }
         });
     }
@@ -1094,19 +1122,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
         // If in Edit Mode (수정 모드)
         if (currentEditingPostId) {
-            const postIdx = (currentCafe.posts || []).findIndex(p => p.id === currentEditingPostId);
-            if (postIdx !== -1) {
-                currentCafe.posts[postIdx].title = title;
-                currentCafe.posts[postIdx].board = board;
-                currentCafe.posts[postIdx].content = contentHtml || `${title} 본문 내용입니다.`;
-                currentCafe.posts[postIdx].isNotice = isNotice;
-            }
-            if (window.currentCafeRecord) {
-                window.currentCafeRecord.posts = currentCafe.posts;
-            }
-            await saveCafeState();
             const editedId = currentEditingPostId;
             currentEditingPostId = null;
+            await saveCafeState((c) => {
+                const postIdx = (c.posts || []).findIndex(p => p.id === editedId);
+                if (postIdx !== -1) {
+                    c.posts[postIdx].title = title;
+                    c.posts[postIdx].board = board;
+                    c.posts[postIdx].content = contentHtml || `${title} 본문 내용입니다.`;
+                    c.posts[postIdx].isNotice = isNotice;
+                }
+            });
             alert("게시글이 성공적으로 수정되었습니다!");
             renderPostTable();
             showPostDetail(editedId);
@@ -1133,15 +1159,13 @@ document.addEventListener("DOMContentLoaded", () => {
             isNotice: isNotice
         };
 
-        if (!currentCafe.posts) currentCafe.posts = [];
-        currentCafe.posts.unshift(newPost);
-        currentCafe.newPostsToday = (currentCafe.newPostsToday || 0) + 1;
-
-        if (window.currentCafeRecord) {
-            window.currentCafeRecord.posts = currentCafe.posts;
-        }
-
-        await saveCafeState();
+        await saveCafeState((c) => {
+            if (!Array.isArray(c.posts)) c.posts = [];
+            if (!c.posts.some(p => p.id === newPost.id)) {
+                c.posts.unshift(newPost);
+            }
+            c.newPostsToday = (c.newPostsToday || 0) + 1;
+        });
 
         alert("게시글이 성공적으로 등록되었습니다!");
         renderPostTable();

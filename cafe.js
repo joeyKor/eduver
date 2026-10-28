@@ -62,8 +62,86 @@ document.addEventListener("DOMContentLoaded", () => {
         });
     }
 
-    // 2. Cafe Data Initialization
+    // 2. Cafe Data Initialization & Safe LocalStorage Quota Protection
     const POCKETBASE_URL = "https://pb.joyfamkr.synology.me";
+
+    function safeSaveCafesData(cafesArray) {
+        if (!cafesArray || !Array.isArray(cafesArray)) return;
+        try {
+            localStorage.setItem("naverCafesData", JSON.stringify(cafesArray));
+        } catch (e) {
+            console.warn("Storage quota exceeded on naverCafesData! Trimming heavy post bodies for local cache...", e);
+            try {
+                // Level 1: Keep titles/authors/metadata of posts, trim heavy base64 images from older posts
+                const slimCafes = cafesArray.map(c => ({
+                    ...c,
+                    posts: Array.isArray(c.posts) ? c.posts.slice(0, 30).map((p, idx) => {
+                        if (idx > 2 && p.content && p.content.length > 500) {
+                            return { ...p, content: p.content.replace(/<img[^>]*>/gi, "[이미지]") };
+                        }
+                        return p;
+                    }) : []
+                }));
+                localStorage.setItem("naverCafesData", JSON.stringify(slimCafes));
+            } catch (e2) {
+                try {
+                    // Level 2: Strip all base64 images and long content from local cache (full data stays in PocketBase)
+                    const compactCafes = cafesArray.map(c => ({
+                        ...c,
+                        icon: (c.icon && c.icon.length > 5000) ? "default-avatar.svg" : c.icon,
+                        posts: Array.isArray(c.posts) ? c.posts.slice(0, 15).map(p => ({
+                            id: p.id,
+                            title: p.title,
+                            author: p.author,
+                            time: p.time,
+                            board: p.board,
+                            isNotice: p.isNotice,
+                            views: p.views || 0,
+                            likes: p.likes || 0,
+                            commentsCount: Array.isArray(p.comments) ? p.comments.length : (p.commentsCount || 0)
+                        })) : []
+                    }));
+                    localStorage.setItem("naverCafesData", JSON.stringify(compactCafes));
+                } catch (e3) {
+                    console.error("Unable to save cafes to localStorage:", e3);
+                }
+            }
+        }
+    }
+    window.safeSaveCafesData = safeSaveCafesData;
+
+    function compressCafeImageFile(file, maxWidth = 800, quality = 0.72) {
+        return new Promise((resolve) => {
+            if (!file || !file.type.startsWith("image/")) {
+                resolve("");
+                return;
+            }
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    let width = img.width;
+                    let height = img.height;
+                    if (width > maxWidth) {
+                        height = Math.round((height * maxWidth) / width);
+                        width = maxWidth;
+                    }
+                    const canvas = document.createElement("canvas");
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext("2d");
+                    ctx.drawImage(img, 0, 0, width, height);
+                    const compressedDataUrl = canvas.toDataURL("image/jpeg", quality);
+                    resolve(compressedDataUrl);
+                };
+                img.onerror = () => resolve(e.target.result);
+                img.src = e.target.result;
+            };
+            reader.onerror = () => resolve("");
+            reader.readAsDataURL(file);
+        });
+    }
+    window.compressCafeImageFile = compressCafeImageFile;
 
     const DEFAULT_CAFES = [
         {
@@ -161,14 +239,14 @@ document.addEventListener("DOMContentLoaded", () => {
     let cafes = JSON.parse(localStorage.getItem("naverCafesData") || "null");
     if (!cafes || !Array.isArray(cafes) || cafes.length === 0) {
         cafes = DEFAULT_CAFES;
-        localStorage.setItem("naverCafesData", JSON.stringify(cafes));
+        safeSaveCafesData(cafes);
     } else {
         DEFAULT_CAFES.forEach(df => {
             if (!cafes.some(c => c.id === df.id || c.name === df.name)) {
                 cafes.push(df);
             }
         });
-        localStorage.setItem("naverCafesData", JSON.stringify(cafes));
+        safeSaveCafesData(cafes);
     }
 
     // Load real cafes from PocketBase if available
@@ -195,7 +273,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     }));
                     
                     cafes = pbCafes;
-                    localStorage.setItem("naverCafesData", JSON.stringify(cafes));
+                    safeSaveCafesData(cafes);
                     renderCafeFeeds();
                 }
             }
@@ -460,7 +538,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 const target = cafes.find(c => c.id === id);
                 if (target) {
                     target.isFavorite = !target.isFavorite;
-                    localStorage.setItem("naverCafesData", JSON.stringify(cafes));
+                    safeSaveCafesData(cafes);
                     renderCafeFeeds();
                 }
             });
@@ -674,18 +752,16 @@ document.addEventListener("DOMContentLoaded", () => {
             createCafeIconFile.click();
         });
 
-        createCafeIconFile.addEventListener("change", (e) => {
+        createCafeIconFile.addEventListener("change", async (e) => {
             const file = e.target.files[0];
             if (file) {
-                const reader = new FileReader();
-                reader.onload = function(evt) {
-                    uploadedCafeIcon = evt.target.result;
+                uploadedCafeIcon = await compressCafeImageFile(file, 300, 0.8);
+                if (uploadedCafeIcon) {
                     cafeIconPreviewBox.innerHTML = `
                         <img src="${uploadedCafeIcon}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 22px;">
                         <div class="icon-camera-badge"><i class="fa-solid fa-camera"></i></div>
                     `;
-                };
-                reader.readAsDataURL(file);
+                }
             }
         });
     }
@@ -858,11 +934,7 @@ document.addEventListener("DOMContentLoaded", () => {
             cafes.unshift(newCafe);
 
             // Safe localStorage saving
-            try {
-                localStorage.setItem("naverCafesData", JSON.stringify(cafes));
-            } catch (storageErr) {
-                console.warn("로컬 저장소 용량 초과 또는 접근 오류 (진행 계속):", storageErr);
-            }
+            safeSaveCafesData(cafes);
 
             try {
                 if (realCreateCafeForm && typeof realCreateCafeForm.reset === "function") {
@@ -944,7 +1016,7 @@ document.addEventListener("DOMContentLoaded", () => {
                         comments: 0
                     });
                     target.newPostsToday = (target.newPostsToday || 0) + 1;
-                    localStorage.setItem("naverCafesData", JSON.stringify(cafes));
+                    safeSaveCafesData(cafes);
                     writePostForm.reset();
                     closeWriteModal();
                     renderCafeFeeds();
