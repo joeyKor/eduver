@@ -206,10 +206,10 @@
         window.fetchAndMergeCafeRecord = fetchAndMergeCafeRecordDirect;
 
         function openCafeJoinViewDirect() {
-            var isAuth = localStorage.getItem("naverIsLoggedIn") === "true";
+            var isAuth = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
             if (!isAuth) {
                 alert("카페 가입을 위해 먼저 로그인이 필요합니다.");
-                location.href = "index.html?redirect=" + encodeURIComponent(location.href);
+                location.href = "login.html?redirect=" + encodeURIComponent(location.href);
                 return;
             }
 
@@ -346,10 +346,10 @@
         window.isCurrentCafeMemberDirect = isCurrentCafeMemberDirect;
 
         function openCafeWriteViewDirect() {
-            var isAuth = localStorage.getItem("naverIsLoggedIn") === "true";
+            var isAuth = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
             if (!isAuth) {
                 alert("로그인이 필요한 서비스입니다.");
-                location.href = "index.html?redirect=" + encodeURIComponent(location.href);
+                location.href = "login.html?redirect=" + encodeURIComponent(location.href);
                 return;
             }
 
@@ -451,22 +451,17 @@
         };
 
         window.openPostDetailDirect = function(postId) {
-            var isAuth = localStorage.getItem("naverIsLoggedIn") === "true";
+            var isAuth = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
+            if (!isAuth) {
+                location.href = "login.html?redirect=" + encodeURIComponent(location.href);
+                return;
+            }
             var curUser = (localStorage.getItem("naverLoggedInUser") || "").trim();
             var curId = (localStorage.getItem("naverLoggedInUserId") || "").trim();
             var curUsername = (localStorage.getItem("naverLoggedInUsername") || "").trim();
             var curNick = (localStorage.getItem("naverUserNickname") || "").trim();
             var cafe = window.currentCafeRecord || {};
-            var mgr = (cafe.manager || "").trim();
-            var joinedMembers = Array.isArray(cafe.joinedMembers) ? cafe.joinedMembers : [];
-            var isMember = false;
-
-            if (mgr && (curUser === mgr || curId === mgr || (curUser && mgr.includes(curUser)) || (curId && mgr.includes(curId)))) {
-                isMember = true;
-            }
-            if (!isMember && joinedMembers.some(function(m) { return String(m).includes(curUser) || String(m).includes(curId); })) {
-                isMember = true;
-            }
+            var isMember = isCurrentCafeMemberDirect();
 
             var posts = typeof cafe.posts === 'string' ? JSON.parse(cafe.posts) : (Array.isArray(cafe.posts) ? cafe.posts : []);
             var post = posts.find(function(p) { return p.id === postId; }) || posts[0];
@@ -483,6 +478,9 @@
                 var boardEl = document.getElementById('detail-board-name');
                 var commentWrap = document.getElementById('comment-section-wrap');
                 var commentWriteUserEl = document.getElementById('comment-write-user-name');
+                var authorBottomBar = document.querySelector('.author-bottom-bar');
+                var postReactionBar = document.querySelector('.post-reaction-bar');
+                var postTopbarLeft = document.querySelector('.post-detail-topbar .topbar-left');
 
                 if (titleEl) titleEl.textContent = post.title || '';
                 if (authorEl) authorEl.textContent = post.author || cafe.manager || '익명';
@@ -513,16 +511,19 @@
                 var btnDetailBottomDelete = document.getElementById("btn-detail-bottom-delete");
 
                 if (detailAuthorActions) {
-                    detailAuthorActions.style.display = isMyPost ? "flex" : "none";
+                    detailAuthorActions.style.display = (isMyPost && isMember) ? "flex" : "none";
+                }
+                if (postTopbarLeft) {
+                    postTopbarLeft.style.display = (isMyPost && isMember) ? "flex" : "none";
                 }
                 if (btnDetailBottomEdit) {
-                    btnDetailBottomEdit.style.display = isMyPost ? "inline-flex" : "none";
+                    btnDetailBottomEdit.style.display = (isMyPost && isMember) ? "inline-flex" : "none";
                     btnDetailBottomEdit.onclick = function() {
                         window.editCurrentPostDirect(post);
                     };
                 }
                 if (btnDetailBottomDelete) {
-                    btnDetailBottomDelete.style.display = isMyPost ? "inline-flex" : "none";
+                    btnDetailBottomDelete.style.display = (isMyPost && isMember) ? "inline-flex" : "none";
                     btnDetailBottomDelete.onclick = function() {
                         window.deleteCurrentPostDirect(post.id);
                     };
@@ -530,34 +531,24 @@
 
                 if (isMember) {
                     if (bodyEl) bodyEl.innerHTML = post.content || `${cafe.name} 카페를 시작합니다.`;
+                    if (authorBottomBar) authorBottomBar.style.display = 'flex';
+                    if (postReactionBar) postReactionBar.style.display = 'flex';
                     if (commentWrap) commentWrap.style.display = 'block';
                     renderCommentsDirect(post);
                 } else {
-                    // Render Member-Only Blur + 10초 만에 가입하기 CTA
+                    // Render Member-Only Blur + 10초 만에 가입하기 CTA (clean, no fake member/visitor stats)
                     if (bodyEl) {
-                        var cafeName = cafe.name || '통장모임';
-                        var memberCount = cafe.members || '1';
                         bodyEl.innerHTML = `
                             <div class="member-lock-wrapper">
                                 <div class="blurred-preview-content">
-                                    <p>이 글은 카페 멤버에게만 공개된 소중한 게시글입니다. 카페의 모든 정보와 글 목록, 작성자의 노하우를 확인해보세요.</p>
-                                    <p>함께 나누며 성장하는 커뮤니티에 지금 참여하고 다른 멤버들과 실시간으로 소통해 보세요.</p>
+                                    <p>이 글은 카페 멤버에게만 공개된 게시글입니다. 카페에 가입하여 모든 게시글과 정보를 확인해 보세요.</p>
+                                    <p>함께 나누며 소통하는 커뮤니티에 지금 참여해 보세요.</p>
                                 </div>
                                 <div class="member-lock-guide-text">
-                                    카페에 가입하면 바로 글을 볼 수 있어요!
+                                    멤버에게만 공개된 게시글입니다.
                                 </div>
                                 <div class="member-lock-divider"></div>
                                 <div class="member-lock-cta-box">
-                                    <h3 class="cta-main-title">
-                                        ${memberCount}명의 멤버와 함께하는<br>
-                                        <span class="cta-cafe-name">${cafeName}</span>에<br>
-                                        가입해 보세요.
-                                    </h3>
-                                    <p class="cta-cafe-sub">${cafeName} 공식카페입니다.</p>
-                                    <div class="cta-visitor-stat">
-                                        <i class="fa-solid fa-wand-magic-sparkles cta-sparkle-icon"></i>
-                                        <span>어제 <strong>630명</strong>이 방문했어요</span>
-                                    </div>
                                     <button type="button" class="btn-lock-join-10s" onclick="openCafeJoinViewDirect()">
                                         10초 만에 가입하기
                                     </button>
@@ -565,6 +556,8 @@
                             </div>
                         `;
                     }
+                    if (authorBottomBar) authorBottomBar.style.display = 'none';
+                    if (postReactionBar) postReactionBar.style.display = 'none';
                     if (commentWrap) commentWrap.style.display = 'none';
                 }
             }
@@ -1425,7 +1418,7 @@
                                 hName.textContent = u.endsWith("님") ? u : u + "님";
                                 if (hCaret) hCaret.style.display = "inline-block";
                             } else {
-                                hName.innerHTML = '<a href="index.html" style="color: #555; text-decoration: none; font-weight: 700;">로그인</a>';
+                                hName.innerHTML = '<a href="login.html?redirect=' + encodeURIComponent(location.href) + '" onclick="event.stopPropagation();" style="color: #555; text-decoration: none; font-weight: 700;">로그인</a>';
                                 if (hCaret) hCaret.style.display = "none";
                             }
                         }

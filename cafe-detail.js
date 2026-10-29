@@ -33,7 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
             headerUserName.textContent = loggedInUser.endsWith("님") ? loggedInUser : `${loggedInUser}님`;
             if (headerUserCaret) headerUserCaret.style.display = "inline-block";
         } else {
-            headerUserName.innerHTML = `<a href="index.html" style="color: #555; text-decoration: none; font-weight: 700;">로그인</a>`;
+            headerUserName.innerHTML = `<a href="login.html?redirect=${encodeURIComponent(window.location.href)}" onclick="event.stopPropagation();" style="color: #555; text-decoration: none; font-weight: 700;">로그인</a>`;
             if (headerUserCaret) headerUserCaret.style.display = "none";
         }
     }
@@ -309,6 +309,9 @@ document.addEventListener("DOMContentLoaded", () => {
         } finally {
             updateCafeHeaders();
             renderPostTable();
+            if (initialPostId) {
+                showPostDetail(initialPostId);
+            }
         }
     }
 
@@ -444,6 +447,12 @@ document.addEventListener("DOMContentLoaded", () => {
     window.showMemberListView = showMemberListView;
 
     function showPostDetail(postId) {
+        const isAuthCheck = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
+        if (!isAuthCheck) {
+            location.href = "login.html?redirect=" + encodeURIComponent(location.href);
+            return;
+        }
+
         currentViewingPostId = postId;
         const post = (currentCafe.posts || []).find(p => p.id === postId) || (currentCafe.posts && currentCafe.posts[0]);
         if (!post) return;
@@ -464,6 +473,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const detailLikeCount = document.getElementById("detail-like-count");
         const detailCommentCount = document.getElementById("detail-comment-count");
         const detailTopCommentCount = document.getElementById("detail-top-comment-count");
+        const authorBottomBar = document.querySelector(".author-bottom-bar");
+        const postReactionBar = document.querySelector(".post-reaction-bar");
+        const postTopbarLeft = document.querySelector(".post-detail-topbar .topbar-left");
 
         if (detailBoardName) detailBoardName.textContent = (post.board || "자유게시판") + " >";
         if (detailNoticeBadge) detailNoticeBadge.style.display = post.isNotice ? "inline-block" : "none";
@@ -479,23 +491,29 @@ document.addEventListener("DOMContentLoaded", () => {
         if (detailCommentCount) detailCommentCount.textContent = commCount;
         if (detailLikeCount) detailLikeCount.textContent = post.likes || 0;
 
+        const isRestricted = !isUserMember();
+
         if (detailPostContentBody) {
-            const isRestricted = post.isNotice && !isUserMember();
             if (isRestricted) {
                 detailPostContentBody.innerHTML = `
-                    <div class="member-only-lock-card">
-                        <div class="lock-icon-wrap">
-                            <i class="fa-solid fa-lock"></i>
+                    <div class="member-lock-wrapper">
+                        <div class="blurred-preview-content">
+                            <p>이 글은 카페 멤버에게만 공개된 게시글입니다. 카페에 가입하여 모든 게시글과 정보를 확인해 보세요.</p>
+                            <p>함께 나누며 소통하는 커뮤니티에 지금 참여해 보세요.</p>
                         </div>
-                        <h4 class="lock-card-title">이 글은 카페 멤버에게만 공개된 게시글입니다.</h4>
-                        <p class="lock-card-desc">카페에 가입하시면 글 내용과 댓글을 확인하고 활동에 참여하실 수 있습니다.</p>
-                        <button type="button" class="btn-lock-join-now" id="btn-lock-join-now">카페 가입하기</button>
+                        <div class="member-lock-guide-text">
+                            멤버에게만 공개된 게시글입니다.
+                        </div>
+                        <div class="member-lock-divider"></div>
+                        <div class="member-lock-cta-box">
+                            <button type="button" class="btn-lock-join-10s" id="btn-lock-join-now">
+                                10초 만에 가입하기
+                            </button>
+                        </div>
                     </div>
                 `;
-                setTimeout(() => {
-                    const btnLockJoin = document.getElementById("btn-lock-join-now");
-                    if (btnLockJoin) btnLockJoin.addEventListener("click", showJoinView);
-                }, 50);
+                const btnLockJoin = document.getElementById("btn-lock-join-now");
+                if (btnLockJoin) btnLockJoin.addEventListener("click", showJoinView);
             } else {
                 let bodyText = post.content;
                 if (!bodyText) {
@@ -504,6 +522,9 @@ document.addEventListener("DOMContentLoaded", () => {
                 detailPostContentBody.innerHTML = bodyText;
             }
         }
+
+        if (authorBottomBar) authorBottomBar.style.display = isRestricted ? "none" : "flex";
+        if (postReactionBar) postReactionBar.style.display = isRestricted ? "none" : "flex";
 
         // Set active comment author name
         const commentWriteUserEl = document.getElementById("comment-write-user-name");
@@ -515,9 +536,11 @@ document.addEventListener("DOMContentLoaded", () => {
         // Render Comments List (Only for members)
         const commentSectionWrap = document.getElementById("comment-section-wrap");
         if (commentSectionWrap) {
-            commentSectionWrap.style.display = isUserMember() ? "block" : "none";
+            commentSectionWrap.style.display = isRestricted ? "none" : "block";
         }
-        renderComments(post);
+        if (!isRestricted) {
+            renderComments(post);
+        }
 
         // Check if currently logged-in user is the author of this post
         const activeUser = (localStorage.getItem("naverLoggedInUser") || loggedInUser || "").trim();
@@ -525,7 +548,7 @@ document.addEventListener("DOMContentLoaded", () => {
         const postAuthor = (post.author || "").trim();
 
         const isMyPost = Boolean(
-            activeUser && postAuthor && (
+            !isRestricted && activeUser && postAuthor && (
                 postAuthor === activeUser ||
                 postAuthor.includes(activeUser) ||
                 activeUser.includes(postAuthor) ||
@@ -536,6 +559,9 @@ document.addEventListener("DOMContentLoaded", () => {
         const detailAuthorActions = document.getElementById("detail-author-actions");
         if (detailAuthorActions) {
             detailAuthorActions.style.display = isMyPost ? "flex" : "none";
+        }
+        if (postTopbarLeft) {
+            postTopbarLeft.style.display = isMyPost ? "flex" : "none";
         }
 
         if (cafeLayoutGrid) cafeLayoutGrid.style.display = "grid";
@@ -607,10 +633,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function showWriteView() {
-        const isAuthCheck = localStorage.getItem("naverIsLoggedIn") === "true";
+        const isAuthCheck = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
         if (!isAuthCheck) {
             alert("로그인이 필요한 서비스입니다.");
-            location.href = "index.html?redirect=" + encodeURIComponent(location.href);
+            location.href = "login.html?redirect=" + encodeURIComponent(location.href);
             return;
         }
 
@@ -691,10 +717,10 @@ document.addEventListener("DOMContentLoaded", () => {
     window.editCurrentPost = editCurrentPost;
 
     function showJoinView() {
-        const isAuthCheck = localStorage.getItem("naverIsLoggedIn") === "true";
+        const isAuthCheck = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
         if (!isAuthCheck) {
             alert("카페 가입을 위해 먼저 로그인이 필요합니다.");
-            location.href = "index.html?redirect=" + encodeURIComponent(location.href);
+            location.href = "login.html?redirect=" + encodeURIComponent(location.href);
             return;
         }
 

@@ -42,7 +42,7 @@ document.addEventListener("DOMContentLoaded", () => {
             .catch(err => console.warn("Cafe avatar sync failed:", err));
     } else {
         if (cafeUserProfileBadge) {
-            cafeUserProfileBadge.innerHTML = `<a href="index.html" style="color: #333; font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 4px;"><i class="fa-regular fa-user"></i> 로그인</a>`;
+            cafeUserProfileBadge.innerHTML = `<a href="login.html?redirect=cafe.html" style="color: #333; font-size: 13px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 4px;"><i class="fa-regular fa-user"></i> 로그인</a>`;
         }
         if (cafeLoggedInBox) cafeLoggedInBox.style.display = "none";
         if (cafeLoggedOutBox) cafeLoggedOutBox.style.display = "flex";
@@ -396,6 +396,15 @@ document.addEventListener("DOMContentLoaded", () => {
         return "default-avatar.svg";
     }
 
+    window.handleCafePostClick = function(targetUrl) {
+        const loggedIn = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
+        if (!loggedIn) {
+            location.href = `login.html?redirect=${encodeURIComponent(targetUrl)}`;
+            return;
+        }
+        location.href = targetUrl;
+    };
+
     function renderAllCafesGrid() {
         if (sidebarJoinedCafesCount) sidebarJoinedCafesCount.textContent = Math.max(1, cafes.length);
         if (allCafesTotalBadge) allCafesTotalBadge.textContent = `${cafes.length}개`;
@@ -489,10 +498,11 @@ document.addEventListener("DOMContentLoaded", () => {
                 const commList = Array.isArray(p.comments) ? p.comments : [];
                 const commCount = commList.length || (parseInt(p.comments, 10) || parseInt(p.commentsCount, 10) || 0);
                 const commBadge = commCount > 0 ? `<span class="badge-post-comment-count">[${commCount}]</span>` : '';
+                const targetUrl = `cafe-detail.html?id=${cafe.id}&name=${encodeURIComponent(cafe.name)}&postId=${encodeURIComponent(p.id || '')}`;
                 return `
                 <li class="cafe-post-item">
                     <div class="post-item-left">
-                        <span class="post-item-title" onclick="location.href='cafe-detail.html?id=${cafe.id}&name=${encodeURIComponent(cafe.name)}'">${p.title}</span>
+                        <span class="post-item-title" onclick="window.handleCafePostClick('${targetUrl}')">${p.title}</span>
                         ${commBadge}
                     </div>
                     <div class="post-item-right">
