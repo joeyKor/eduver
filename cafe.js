@@ -249,28 +249,61 @@ document.addEventListener("DOMContentLoaded", () => {
         safeSaveCafesData(cafes);
     }
 
-    // Load real cafes from PocketBase if available
+    // Load real cafes and cafe_posts from PocketBase if available
     async function loadCafesFromPocketBase() {
         try {
-            const res = await fetch(`${POCKETBASE_URL}/api/collections/cafes/records?sort=-created`);
+            const [res, postsRes] = await Promise.all([
+                fetch(`${POCKETBASE_URL}/api/collections/cafes/records?sort=-created`),
+                fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records?sort=-created&perPage=200&fields=id,collectionId,cafeId,cafeName,board,title,author,authorId,isNotice,views,likes,comments,attachments,time,created`)
+            ]);
+
+            let allPostsByCafe = {};
+            if (postsRes && postsRes.ok) {
+                const postsData = await postsRes.json();
+                (postsData.items || []).forEach(p => {
+                    const cId = p.cafeId || "";
+                    if (!allPostsByCafe[cId]) allPostsByCafe[cId] = [];
+                    const commArr = Array.isArray(p.comments) ? p.comments : [];
+                    allPostsByCafe[cId].push({
+                        id: p.id,
+                        collectionId: p.collectionId || "cafe_posts",
+                        cafeId: p.cafeId,
+                        board: p.board || "자유게시판",
+                        title: p.title || "(제목 없음)",
+                        author: p.author || "익명",
+                        authorId: p.authorId || "",
+                        isNotice: Boolean(p.isNotice),
+                        views: p.views || 0,
+                        likes: p.likes || 0,
+                        comments: commArr,
+                        commentsCount: commArr.length,
+                        attachments: Array.isArray(p.attachments) ? p.attachments : [],
+                        time: p.time || (p.created ? p.created.split(" ")[0].replace(/-/g, ".") + "." : "방금 전")
+                    });
+                });
+            }
+
             if (res.ok) {
                 const data = await res.json();
                 if (data.items && data.items.length > 0) {
-                    const pbCafes = data.items.map(item => ({
-                        id: item.id,
-                        name: item.name,
-                        isOfficial: item.isOfficial || false,
-                        ranking: item.ranking || "신규 개설",
-                        members: item.members || "1",
-                        joinedMembers: item.joinedMembers ? (typeof item.joinedMembers === 'string' ? JSON.parse(item.joinedMembers) : item.joinedMembers) : [],
-                        newPostsToday: item.newPostsToday || (item.posts ? (typeof item.posts === 'string' ? JSON.parse(item.posts).length : item.posts.length) : 1),
-                        icon: item.icon || "default-avatar.svg",
-                        isFavorite: item.isFavorite || false,
-                        category: item.category || "자유",
-                        desc: item.description || "",
-                        manager: item.manager || "매니저",
-                        posts: item.posts ? (typeof item.posts === 'string' ? JSON.parse(item.posts) : item.posts) : []
-                    }));
+                    const pbCafes = data.items.map(item => {
+                        const itemPosts = allPostsByCafe[item.id] || (item.posts ? (typeof item.posts === 'string' ? JSON.parse(item.posts) : item.posts) : []);
+                        return {
+                            id: item.id,
+                            name: item.name,
+                            isOfficial: item.isOfficial || false,
+                            ranking: item.ranking || "신규 개설",
+                            members: item.members || "1",
+                            joinedMembers: item.joinedMembers ? (typeof item.joinedMembers === 'string' ? JSON.parse(item.joinedMembers) : item.joinedMembers) : [],
+                            newPostsToday: itemPosts.length || item.newPostsToday || 1,
+                            icon: item.icon || "default-avatar.svg",
+                            isFavorite: item.isFavorite || false,
+                            category: item.category || "자유",
+                            desc: item.description || "",
+                            manager: item.manager || "매니저",
+                            posts: itemPosts
+                        };
+                    });
                     
                     cafes = pbCafes;
                     safeSaveCafesData(cafes);
@@ -898,7 +931,7 @@ document.addEventListener("DOMContentLoaded", () => {
                     isFavorite: true,
                     newPostsToday: 1,
                     icon: safeIcon,
-                    posts: JSON.stringify([initialPost])
+                    posts: []
                 };
 
                 const controller = new AbortController();
@@ -916,6 +949,31 @@ document.addEventListener("DOMContentLoaded", () => {
                     const pbData = await pbRes.json();
                     if (pbData && pbData.id) {
                         createdCafeId = pbData.id;
+                        // Create welcome notice post in cafe_posts collection
+                        const postRes = await fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                cafeId: createdCafeId,
+                                cafeName: name,
+                                board: initialPost.board,
+                                title: initialPost.title,
+                                content: initialPost.content,
+                                author: initialPost.author,
+                                authorId: localStorage.getItem("naverLoggedInUserId") || "",
+                                isNotice: true,
+                                views: 0,
+                                likes: 0,
+                                comments: [],
+                                time: initialPost.time
+                            })
+                        });
+                        if (postRes && postRes.ok) {
+                            const createdPost = await postRes.json();
+                            if (createdPost && createdPost.id) {
+                                initialPost.id = createdPost.id;
+                            }
+                        }
                     }
                 }
             } catch (err) {

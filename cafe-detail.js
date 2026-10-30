@@ -191,6 +191,9 @@ document.addEventListener("DOMContentLoaded", () => {
             const commList = Array.isArray(post.comments) ? post.comments : [];
             const commCount = commList.length || parseInt(post.commentsCount, 10) || 0;
             const commBadge = commCount > 0 ? `<span class="badge-post-comment-count">[${commCount}]</span>` : '';
+            const clipBadge = (Array.isArray(post.attachments) && post.attachments.length > 0)
+                ? `<i class="fa-solid fa-paperclip badge-post-file-clip" title="첨부파일"></i>`
+                : '';
 
             tr.innerHTML = `
                 <td class="td-check">
@@ -199,6 +202,7 @@ document.addEventListener("DOMContentLoaded", () => {
                 <td>${numOrBadge}</td>
                 <td class="td-board-title">
                     <span class="post-link-text" style="${post.isNotice ? 'color:#eb5757; font-weight:700;' : ''}">${post.title || '(제목 없음)'}</span>
+                    ${clipBadge}
                     ${commBadge}
                     <span class="badge-n-dot">N</span>
                 </td>
@@ -288,12 +292,38 @@ document.addEventListener("DOMContentLoaded", () => {
                     }
                 }
                 
-                // Parse Posts
-                let rawPosts = item.posts;
-                if (typeof rawPosts === 'string') {
-                    try { rawPosts = JSON.parse(rawPosts); } catch(e) { rawPosts = []; }
+                // Fetch Posts from cafe_posts collection
+                try {
+                    const postsRes = await fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records?filter=${encodeURIComponent(`(cafeId='${currentCafe.id}')`)}&sort=-isNotice,-created&perPage=200`);
+                    if (postsRes.ok) {
+                        const postsData = await postsRes.json();
+                        if (postsData && Array.isArray(postsData.items)) {
+                            currentCafe.posts = postsData.items.map(pItem => {
+                                const commArr = Array.isArray(pItem.comments) ? pItem.comments : [];
+                                return {
+                                    id: pItem.id,
+                                    collectionId: pItem.collectionId || "cafe_posts",
+                                    cafeId: pItem.cafeId,
+                                    board: pItem.board || "자유게시판",
+                                    title: pItem.title || "(제목 없음)",
+                                    content: pItem.content || "",
+                                    author: pItem.author || currentCafe.manager || "익명",
+                                    authorId: pItem.authorId || "",
+                                    isNotice: Boolean(pItem.isNotice),
+                                    views: pItem.views || 0,
+                                    likes: pItem.likes || 0,
+                                    comments: commArr,
+                                    commentsCount: commArr.length,
+                                    attachments: Array.isArray(pItem.attachments) ? pItem.attachments : [],
+                                    time: pItem.time || (pItem.created ? pItem.created.split(" ")[0].replace(/-/g, ".") + "." : "2026.08.23.")
+                                };
+                            });
+                        }
+                    }
+                } catch (postErr) {
+                    console.warn("cafe_posts fetch error:", postErr);
                 }
-                currentCafe.posts = Array.isArray(rawPosts) ? rawPosts : [];
+                window.currentCafeRecord = currentCafe;
 
                 // Update local storage cafes
                 const idx = cafes.findIndex(c => String(c.id) === String(currentCafe.id));
@@ -454,12 +484,20 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         currentViewingPostId = postId;
+        window.currentViewingPostId = postId;
         const post = (currentCafe.posts || []).find(p => p.id === postId) || (currentCafe.posts && currentCafe.posts[0]);
         if (!post) return;
+        window.currentViewingPostId = post.id;
 
-        // Increment views
+        // Increment views on individual cafe_posts record
         post.views = (post.views || 0) + 1;
-        saveCafeState();
+        if (post.id && !String(post.id).startsWith("p_")) {
+            fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records/${post.id}`, {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ views: post.views })
+            }).catch(() => {});
+        }
 
         // Populate details
         const detailBoardName = document.getElementById("detail-board-name");
@@ -495,6 +533,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
         if (detailPostContentBody) {
             if (isRestricted) {
+                if (typeof window.renderDetailAttachmentsDirect === "function") {
+                    window.renderDetailAttachmentsDirect(post, false);
+                }
                 detailPostContentBody.innerHTML = `
                     <div class="member-lock-wrapper">
                         <div class="blurred-preview-content">
@@ -515,11 +556,17 @@ document.addEventListener("DOMContentLoaded", () => {
                 const btnLockJoin = document.getElementById("btn-lock-join-now");
                 if (btnLockJoin) btnLockJoin.addEventListener("click", showJoinView);
             } else {
-                let bodyText = post.content;
+                const parsedPost = typeof window.parseCafePostAttachments === "function"
+                    ? window.parseCafePostAttachments(post)
+                    : { cleanContent: post.content || "", attachments: [] };
+                let bodyText = parsedPost.cleanContent;
                 if (!bodyText) {
                     bodyText = `${currentCafe.name} 카페를 시작합니다.\n\n나의 친구들, 같은 관심사를 공유하는 멤버들과 함께 재미있는 이야기 나누며 행복한 카페를 만들어가요!`;
                 }
                 detailPostContentBody.innerHTML = bodyText;
+                if (typeof window.renderDetailAttachmentsDirect === "function") {
+                    window.renderDetailAttachmentsDirect(post, true);
+                }
             }
         }
 
@@ -612,14 +659,14 @@ document.addEventListener("DOMContentLoaded", () => {
         }
         safeSaveCafesData(cafes);
 
-        // PocketBase Async Sync
+        // PocketBase Async Sync (only lightweight cafe metadata, posts are in cafe_posts)
         if (currentCafe.id && !currentCafe.id.startsWith("cafe_")) {
             try {
                 await fetch(`${POCKETBASE_URL}/api/collections/cafes/records/${currentCafe.id}`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        posts: currentCafe.posts,
+                        newPostsToday: (currentCafe.posts || []).length,
                         members: currentCafe.members,
                         joinedMembers: currentCafe.joinedMembers,
                         manager: currentCafe.manager
@@ -648,6 +695,11 @@ document.addEventListener("DOMContentLoaded", () => {
         }
 
         currentEditingPostId = null;
+        window.currentEditingPostId = null;
+        window.attachedCafeFiles = [];
+        if (typeof window.renderWriteAttachmentsDirect === "function") {
+            window.renderWriteAttachmentsDirect();
+        }
 
         if (cafeLayoutGrid) cafeLayoutGrid.style.display = "none";
         if (postDetailContainer) postDetailContainer.style.display = "none";
@@ -682,6 +734,11 @@ document.addEventListener("DOMContentLoaded", () => {
         if (!post) return;
 
         currentEditingPostId = post.id;
+        window.currentEditingPostId = post.id;
+        window.attachedCafeFiles = [];
+        if (typeof window.renderWriteAttachmentsDirect === "function") {
+            window.renderWriteAttachmentsDirect();
+        }
 
         if (cafeLayoutGrid) cafeLayoutGrid.style.display = "none";
         if (postDetailContainer) postDetailContainer.style.display = "none";
@@ -706,7 +763,10 @@ document.addEventListener("DOMContentLoaded", () => {
             titleEl.value = post.title || "";
             titleEl.focus();
         }
-        if (contentEl) contentEl.innerHTML = post.content || "";
+        const parsedEditContent = typeof window.parseCafePostAttachments === "function"
+            ? window.parseCafePostAttachments(post).cleanContent
+            : (post.content || "");
+        if (contentEl) contentEl.innerHTML = parsedEditContent;
         if (boardEl && post.board) boardEl.value = post.board;
         if (noticeEl) noticeEl.checked = Boolean(post.isNotice);
 
@@ -865,35 +925,62 @@ document.addEventListener("DOMContentLoaded", () => {
     const btnCommentSubmit = document.getElementById("btn-comment-submit");
 
     function renderComments(post) {
-        if (!commentListContainer) return;
-        const comments = Array.isArray(post.comments) ? post.comments : [];
-        commentListContainer.innerHTML = "";
-
-        if (comments.length === 0) {
-            commentListContainer.innerHTML = "";
+        if (typeof window.renderComments === "function" && window.renderComments !== renderComments) {
+            window.renderComments(post);
             return;
         }
+        if (!commentListContainer || !post) return;
+        const comments = Array.isArray(post.comments) ? post.comments : [];
+        commentListContainer.innerHTML = "";
+        if (comments.length === 0) return;
 
-        comments.forEach(c => {
+        comments.forEach((c, idx) => {
+            const cId = c.id || ("c_idx_" + idx);
+            c.id = cId;
             const item = document.createElement("div");
             item.className = "comment-item";
             const authorNick = c.author || "익명";
             const avatarUrl = c.avatar || "default-avatar.svg";
+            const isMine = typeof window.isMyCafeCommentDirect === "function" ? window.isMyCafeCommentDirect(c) : false;
+            const moreMenuHtml = isMine ? `
+                <div class="comment-more-wrap">
+                    <button type="button" class="btn-comment-more" onclick="toggleCommentMenuDirect('${cId}', event)" title="댓글 메뉴">
+                        <i class="fa-solid fa-ellipsis"></i>
+                    </button>
+                    <div class="comment-more-dropdown" id="comment-menu-${cId}" onclick="event.stopPropagation()">
+                        <button type="button" class="btn-comment-menu-item" onclick="startEditCommentDirect('${cId}')">수정</button>
+                        <button type="button" class="btn-comment-menu-item" onclick="deleteCommentDirect('${cId}')">삭제</button>
+                    </div>
+                </div>
+            ` : "";
+            const safeText = (c.text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
             item.innerHTML = `
                 <div class="comment-avatar"><img src="${avatarUrl}" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;"></div>
                 <div class="comment-body">
                     <div class="comment-header-line">
-                        <span class="comment-author">${authorNick}</span>
-                        <span class="comment-date">${c.time}</span>
+                        <div class="comment-header-left">
+                            <span class="comment-author">${authorNick}</span>
+                            <span class="comment-date">${c.time}</span>
+                        </div>
+                        ${moreMenuHtml}
                     </div>
-                    <div class="comment-text">${c.text}</div>
+                    <div class="comment-text" id="comment-text-${cId}">${safeText}</div>
+                    ${isMine ? `
+                        <div class="comment-edit-box" id="comment-edit-box-${cId}" style="display: none;">
+                            <textarea class="comment-edit-textarea" id="comment-edit-input-${cId}" rows="2">${safeText}</textarea>
+                            <div class="comment-edit-actions">
+                                <button type="button" class="btn-comment-edit-cancel" onclick="cancelEditCommentDirect('${cId}')">취소</button>
+                                <button type="button" class="btn-comment-edit-save" onclick="saveEditCommentDirect('${cId}')">등록</button>
+                            </div>
+                        </div>
+                    ` : ""}
                 </div>
             `;
             commentListContainer.appendChild(item);
         });
     }
 
-    // Comment Input change activates submit button
+    // Comment Input change activates submit button (submission is handled by submitCommentDirect in cafe-detail.html)
     if (commentInputText && btnCommentSubmit) {
         commentInputText.addEventListener("input", () => {
             if (commentInputText.value.trim().length > 0) {
@@ -902,16 +989,28 @@ document.addEventListener("DOMContentLoaded", () => {
                 btnCommentSubmit.classList.remove("active");
             }
         });
+    }
 
-        btnCommentSubmit.addEventListener("click", () => {
-            const text = commentInputText.value.trim();
-            if (!text || !currentViewingPostId) return;
+    // Override submitCommentDirect so both currentCafe and window.currentCafeRecord stay synced with cafe_posts
+    let isSubmittingComment = false;
+    window.submitCommentDirect = async function() {
+        if (isSubmittingComment) return;
+        const isAuthCheck = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
+        if (!isAuthCheck) {
+            alert("댓글을 작성하려면 먼저 로그인이 필요합니다.");
+            return;
+        }
+        const text = commentInputText ? commentInputText.value.trim() : "";
+        if (!text) {
+            alert("댓글 내용을 입력해주세요.");
+            if (commentInputText) commentInputText.focus();
+            return;
+        }
+        const postId = currentViewingPostId || window.currentViewingPostId;
+        if (!postId) return;
 
-            const post = (currentCafe.posts || []).find(p => p.id === currentViewingPostId);
-            if (!post) return;
-
-            if (!Array.isArray(post.comments)) post.comments = [];
-
+        isSubmittingComment = true;
+        try {
             const now = new Date();
             const year = now.getFullYear();
             const month = String(now.getMonth() + 1).padStart(2, "0");
@@ -919,29 +1018,60 @@ document.addEventListener("DOMContentLoaded", () => {
             const hours = String(now.getHours()).padStart(2, "0");
             const mins = String(now.getMinutes()).padStart(2, "0");
             const timeStr = `${year}.${month}.${day}. ${hours}:${mins}`;
+            const activeNick = (localStorage.getItem("naverLoggedInUser") || loggedInUser || "새회원").trim();
 
-            post.comments.push({
-                id: "c_" + Date.now(),
-                author: loggedInUser,
+            const newComment = {
+                id: "c_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+                author: activeNick,
+                authorId: (localStorage.getItem("naverLoggedInUserId") || "").trim(),
                 time: timeStr,
                 text: text
-            });
-            post.commentsCount = post.comments.length;
+            };
 
-            saveCafeState();
+            let mergedComments = [newComment];
+            if (!String(postId).startsWith("p_")) {
+                try {
+                    const getRes = await fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records/${postId}`);
+                    if (getRes.ok) {
+                        const remotePost = await getRes.json();
+                        const rComms = Array.isArray(remotePost.comments) ? remotePost.comments : [];
+                        mergedComments = [...rComms];
+                        if (!mergedComments.some(cm => cm.id === newComment.id)) {
+                            mergedComments.push(newComment);
+                        }
+                        await fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records/${postId}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ comments: mergedComments })
+                        });
+                    }
+                } catch (err) {
+                    console.warn("Comment PB sync error:", err);
+                }
+            }
 
-            commentInputText.value = "";
-            btnCommentSubmit.classList.remove("active");
+            const post = (currentCafe.posts || []).find(p => p.id === postId);
+            if (post) {
+                post.comments = mergedComments;
+                post.commentsCount = mergedComments.length;
+            }
+            window.currentCafeRecord = currentCafe;
+            safeSaveCafesData(cafes);
 
-            // Update UI
+            if (commentInputText) commentInputText.value = "";
+            if (btnCommentSubmit) btnCommentSubmit.classList.remove("active");
+
             const detailCommentCount = document.getElementById("detail-comment-count");
             const detailTopCommentCount = document.getElementById("detail-top-comment-count");
-            if (detailCommentCount) detailCommentCount.textContent = post.comments.length;
-            if (detailTopCommentCount) detailTopCommentCount.textContent = post.comments.length;
+            if (detailCommentCount) detailCommentCount.textContent = mergedComments.length;
+            if (detailTopCommentCount) detailTopCommentCount.textContent = mergedComments.length;
 
-            renderComments(post);
-        });
-    }
+            renderComments(post || { comments: mergedComments });
+        } finally {
+            isSubmittingComment = false;
+        }
+    };
+    window.submitComment = window.submitCommentDirect;
 
     if (hideNoticeCheck) {
         hideNoticeCheck.addEventListener("change", renderPostTable);
@@ -976,10 +1106,16 @@ document.addEventListener("DOMContentLoaded", () => {
             }
 
             if (confirm(`선택한 ${checkedItems.length}개의 게시글을 삭제하시겠습니까?`)) {
-                const idsToDelete = Array.from(checkedItems).map(i => i.getAttribute("data-id"));
-                await saveCafeState((c) => {
-                    c.posts = (c.posts || []).filter(p => !idsToDelete.includes(p.id));
-                });
+                const idsToDelete = Array.from(checkedItems).map(i => i.getAttribute("data-id")).filter(Boolean);
+                await Promise.all(idsToDelete.map(delId => {
+                    if (!String(delId).startsWith("p_")) {
+                        return fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records/${delId}`, { method: "DELETE" }).catch(() => {});
+                    }
+                    return Promise.resolve();
+                }));
+                currentCafe.posts = (currentCafe.posts || []).filter(p => !idsToDelete.includes(p.id));
+                window.currentCafeRecord = currentCafe;
+                await saveCafeState();
                 renderPostTable();
                 alert("게시글이 삭제되었습니다.");
             }
@@ -993,11 +1129,16 @@ document.addEventListener("DOMContentLoaded", () => {
     
     async function deleteCurrentPost() {
         if (confirm("이 게시글을 삭제하시겠습니까?\n삭제된 글은 복구할 수 없습니다.")) {
-            if (currentViewingPostId) {
-                const targetId = currentViewingPostId;
-                await saveCafeState((c) => {
-                    c.posts = (c.posts || []).filter(p => p.id !== targetId);
-                });
+            const targetId = currentViewingPostId || window.currentViewingPostId;
+            if (targetId) {
+                if (!String(targetId).startsWith("p_")) {
+                    try {
+                        await fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records/${targetId}`, { method: "DELETE" });
+                    } catch (e) {}
+                }
+                currentCafe.posts = (currentCafe.posts || []).filter(p => p.id !== targetId);
+                window.currentCafeRecord = currentCafe;
+                await saveCafeState();
             }
             alert("게시글이 삭제되었습니다.");
             showBoardList();
@@ -1145,20 +1286,79 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const title = prefix ? `[${prefix}] ${rawTitle}` : rawTitle;
         const curAuthor = (localStorage.getItem("naverLoggedInUser") || currentCafe.manager || loggedInUser || "연습용").trim();
+        let finalContent = contentHtml || `${title} 본문 내용입니다.`;
+        const filesToUpload = Array.isArray(window.attachedCafeFiles) ? window.attachedCafeFiles.slice() : [];
+
+        if (filesToUpload.length > 0) {
+            const metaList = filesToUpload.map(f => ({
+                name: f.name,
+                size: typeof window.formatCafeFileSize === "function" ? window.formatCafeFileSize(f.size || 0) : "첨부파일"
+            }));
+            finalContent += `<!-- EDUVER_ATTACH_META_START --><script type="application/json" class="eduver-attach-meta">${encodeURIComponent(JSON.stringify(metaList))}<\/script><!-- EDUVER_ATTACH_META_END -->`;
+        }
 
         // If in Edit Mode (수정 모드)
-        if (currentEditingPostId) {
-            const editedId = currentEditingPostId;
+        if (currentEditingPostId || window.currentEditingPostId) {
+            const editedId = currentEditingPostId || window.currentEditingPostId;
             currentEditingPostId = null;
-            await saveCafeState((c) => {
-                const postIdx = (c.posts || []).findIndex(p => p.id === editedId);
-                if (postIdx !== -1) {
-                    c.posts[postIdx].title = title;
-                    c.posts[postIdx].board = board;
-                    c.posts[postIdx].content = contentHtml || `${title} 본문 내용입니다.`;
-                    c.posts[postIdx].isNotice = isNotice;
+            window.currentEditingPostId = null;
+            let updatedAttachments = null;
+
+            if (!String(editedId).startsWith("p_")) {
+                try {
+                    let patchRes;
+                    if (filesToUpload.length > 0) {
+                        const editFormData = new FormData();
+                        editFormData.append("title", title);
+                        editFormData.append("board", board);
+                        editFormData.append("content", finalContent);
+                        editFormData.append("isNotice", isNotice ? "true" : "false");
+                        filesToUpload.forEach(file => editFormData.append("attachments", file));
+                        patchRes = await fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records/${editedId}`, {
+                            method: "PATCH",
+                            body: editFormData
+                        });
+                    } else {
+                        patchRes = await fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records/${editedId}`, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                title: title,
+                                board: board,
+                                content: finalContent,
+                                isNotice: isNotice
+                            })
+                        });
+                    }
+                    if (patchRes && patchRes.ok) {
+                        const patchedData = await patchRes.json();
+                        if (patchedData && Array.isArray(patchedData.attachments)) {
+                            updatedAttachments = patchedData.attachments;
+                        }
+                    }
+                } catch (e) {
+                    console.warn("PB edit cafe_post error:", e);
                 }
-            });
+            }
+
+            window.attachedCafeFiles = [];
+            if (typeof window.renderWriteAttachmentsDirect === "function") {
+                window.renderWriteAttachmentsDirect();
+            }
+
+            const postIdx = (currentCafe.posts || []).findIndex(p => p.id === editedId);
+            if (postIdx !== -1) {
+                currentCafe.posts[postIdx].title = title;
+                currentCafe.posts[postIdx].board = board;
+                currentCafe.posts[postIdx].content = finalContent;
+                currentCafe.posts[postIdx].isNotice = isNotice;
+                if (updatedAttachments) {
+                    currentCafe.posts[postIdx].attachments = updatedAttachments;
+                }
+            }
+            window.currentCafeRecord = currentCafe;
+            safeSaveCafesData(cafes);
+
             alert("게시글이 성공적으로 수정되었습니다!");
             renderPostTable();
             showPostDetail(editedId);
@@ -1173,25 +1373,86 @@ document.addEventListener("DOMContentLoaded", () => {
 
         const newPost = {
             id: "p_" + Date.now(),
+            collectionId: "cafe_posts",
+            cafeId: currentCafe.id || "",
+            cafeName: currentCafe.name || "",
             title: title,
             author: curAuthor,
+            authorId: localStorage.getItem("naverLoggedInUserId") || "",
             time: timeStr,
             views: 0,
             likes: 0,
             commentsCount: 0,
             comments: [],
+            attachments: [],
             board: board,
-            content: contentHtml || `${title} 본문 내용입니다.`,
+            content: finalContent,
             isNotice: isNotice
         };
 
-        await saveCafeState((c) => {
-            if (!Array.isArray(c.posts)) c.posts = [];
-            if (!c.posts.some(p => p.id === newPost.id)) {
-                c.posts.unshift(newPost);
+        try {
+            let createRes;
+            if (filesToUpload.length > 0) {
+                const formData = new FormData();
+                formData.append("cafeId", newPost.cafeId);
+                formData.append("cafeName", newPost.cafeName);
+                formData.append("board", newPost.board);
+                formData.append("title", newPost.title);
+                formData.append("content", newPost.content);
+                formData.append("author", newPost.author);
+                formData.append("authorId", newPost.authorId);
+                formData.append("isNotice", newPost.isNotice ? "true" : "false");
+                formData.append("views", "0");
+                formData.append("likes", "0");
+                formData.append("comments", "[]");
+                formData.append("time", newPost.time);
+                filesToUpload.forEach(file => formData.append("attachments", file));
+                createRes = await fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records`, {
+                    method: "POST",
+                    body: formData
+                });
+            } else {
+                createRes = await fetch(`${POCKETBASE_URL}/api/collections/cafe_posts/records`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        cafeId: newPost.cafeId,
+                        cafeName: newPost.cafeName,
+                        board: newPost.board,
+                        title: newPost.title,
+                        content: newPost.content,
+                        author: newPost.author,
+                        authorId: newPost.authorId,
+                        isNotice: newPost.isNotice,
+                        views: 0,
+                        likes: 0,
+                        comments: [],
+                        time: newPost.time
+                    })
+                });
             }
-            c.newPostsToday = (c.newPostsToday || 0) + 1;
-        });
+            if (createRes && createRes.ok) {
+                const createdData = await createRes.json();
+                if (createdData && createdData.id) {
+                    newPost.id = createdData.id;
+                    newPost.collectionId = createdData.collectionId || "cafe_posts";
+                    newPost.attachments = Array.isArray(createdData.attachments) ? createdData.attachments : [];
+                }
+            }
+        } catch (e) {
+            console.warn("PB create cafe_post error:", e);
+        }
+
+        window.attachedCafeFiles = [];
+        if (typeof window.renderWriteAttachmentsDirect === "function") {
+            window.renderWriteAttachmentsDirect();
+        }
+
+        if (!Array.isArray(currentCafe.posts)) currentCafe.posts = [];
+        currentCafe.posts.unshift(newPost);
+        currentCafe.newPostsToday = currentCafe.posts.length;
+        window.currentCafeRecord = currentCafe;
+        await saveCafeState();
 
         alert("게시글이 성공적으로 등록되었습니다!");
         renderPostTable();

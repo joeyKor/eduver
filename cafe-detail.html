@@ -116,42 +116,6 @@
                     var res = await fetch(pbUrl + "/api/collections/cafes/records/" + pbId);
                     if (res.ok) {
                         var remote = await res.json();
-                        var remotePosts = remote.posts;
-                        if (typeof remotePosts === "string") {
-                            try { remotePosts = JSON.parse(remotePosts); } catch (e) { remotePosts = []; }
-                        }
-                        if (!Array.isArray(remotePosts)) remotePosts = [];
-
-                        var localPosts = cafeObj.posts;
-                        if (typeof localPosts === "string") {
-                            try { localPosts = JSON.parse(localPosts); } catch (e) { localPosts = []; }
-                        }
-                        if (!Array.isArray(localPosts)) localPosts = [];
-
-                        // Merge remote and local posts by id (preserve any posts created concurrently on server)
-                        var mergedPosts = remotePosts.slice();
-                        localPosts.forEach(function(lp) {
-                            var rIdx = mergedPosts.findIndex(function(rp) { return rp.id === lp.id; });
-                            if (rIdx === -1) {
-                                mergedPosts.unshift(lp);
-                            } else {
-                                // Merge comments of existing post
-                                var rComms = Array.isArray(mergedPosts[rIdx].comments) ? mergedPosts[rIdx].comments : [];
-                                var lComms = Array.isArray(lp.comments) ? lp.comments : [];
-                                var mergedComms = rComms.slice();
-                                lComms.forEach(function(lc) {
-                                    if (!mergedComms.some(function(rc) { return rc.id === lc.id; })) {
-                                        mergedComms.push(lc);
-                                    }
-                                });
-                                mergedPosts[rIdx] = Object.assign({}, mergedPosts[rIdx], lp, {
-                                    comments: mergedComms,
-                                    commentsCount: mergedComms.length
-                                });
-                            }
-                        });
-                        cafeObj.posts = mergedPosts;
-
                         var remoteMembers = remote.joinedMembers;
                         if (typeof remoteMembers === "string") {
                             try { remoteMembers = JSON.parse(remoteMembers); } catch (e) { remoteMembers = []; }
@@ -185,17 +149,17 @@
                 safeSaveCafesDataDirect(cafesData);
             } catch (e) {}
 
-            // Patch back to PocketBase
+            // Patch back to PocketBase (only lightweight cafe metadata, posts are in cafe_posts)
             if (pbId && String(pbId).indexOf("cafe_") !== 0) {
                 try {
                     await fetch(pbUrl + "/api/collections/cafes/records/" + pbId, {
                         method: "PATCH",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({
-                            posts: cafeObj.posts || [],
                             newPostsToday: cafeObj.newPostsToday || (cafeObj.posts ? cafeObj.posts.length : 1),
                             members: String(cafeObj.members || "1"),
-                            joinedMembers: cafeObj.joinedMembers || []
+                            joinedMembers: cafeObj.joinedMembers || [],
+                            manager: cafeObj.manager
                         })
                     });
                 } catch (e) {
@@ -360,6 +324,12 @@
                 return;
             }
 
+            window.currentEditingPostId = null;
+            window.attachedCafeFiles = [];
+            if (typeof window.renderWriteAttachmentsDirect === "function") {
+                window.renderWriteAttachmentsDirect();
+            }
+
             var grid = document.querySelector(".cafe-layout-grid");
             var bList = document.getElementById("board-list-container");
             var pDetail = document.getElementById("post-detail-container");
@@ -394,6 +364,10 @@
             if (!post) return;
 
             window.currentEditingPostId = post.id;
+            window.attachedCafeFiles = [];
+            if (typeof window.renderWriteAttachmentsDirect === "function") {
+                window.renderWriteAttachmentsDirect();
+            }
 
             var grid = document.querySelector(".cafe-layout-grid");
             var bList = document.getElementById("board-list-container");
@@ -426,7 +400,10 @@
                 titleEl.value = post.title || "";
                 titleEl.focus();
             }
-            if (contentEl) contentEl.innerHTML = post.content || "";
+            var parsedBody = typeof window.parseCafePostAttachments === "function"
+                ? window.parseCafePostAttachments(post).cleanContent
+                : (post.content || "");
+            if (contentEl) contentEl.innerHTML = parsedBody;
             if (boardEl && post.board) boardEl.value = post.board;
             if (noticeEl) noticeEl.checked = Boolean(post.isNotice);
 
@@ -439,10 +416,13 @@
 
             if (confirm("이 게시글을 삭제하시겠습니까?\n삭제된 글은 복구할 수 없습니다.")) {
                 var cafe = window.currentCafeRecord || {};
-                await fetchAndMergeCafeRecordDirect(cafe, function(c) {
-                    var posts = typeof c.posts === 'string' ? JSON.parse(c.posts) : (Array.isArray(c.posts) ? c.posts : []);
-                    c.posts = posts.filter(function(p) { return p.id !== targetId; });
-                });
+                if (String(targetId).indexOf("p_") !== 0) {
+                    try {
+                        await fetch("https://pb.joyfamkr.synology.me/api/collections/cafe_posts/records/" + targetId, { method: "DELETE" });
+                    } catch (e) {}
+                }
+                var posts = typeof cafe.posts === 'string' ? JSON.parse(cafe.posts) : (Array.isArray(cafe.posts) ? cafe.posts : []);
+                cafe.posts = posts.filter(function(p) { return p.id !== targetId; });
                 window.currentCafeRecord = cafe;
 
                 alert("게시글이 삭제되었습니다.");
@@ -530,12 +510,21 @@
                 }
 
                 if (isMember) {
-                    if (bodyEl) bodyEl.innerHTML = post.content || `${cafe.name} 카페를 시작합니다.`;
+                    var parsedPost = typeof window.parseCafePostAttachments === "function"
+                        ? window.parseCafePostAttachments(post)
+                        : { cleanContent: post.content || "", attachments: [] };
+                    if (bodyEl) bodyEl.innerHTML = parsedPost.cleanContent || `${cafe.name} 카페를 시작합니다.`;
+                    if (typeof window.renderDetailAttachmentsDirect === "function") {
+                        window.renderDetailAttachmentsDirect(post, true);
+                    }
                     if (authorBottomBar) authorBottomBar.style.display = 'flex';
                     if (postReactionBar) postReactionBar.style.display = 'flex';
                     if (commentWrap) commentWrap.style.display = 'block';
                     renderCommentsDirect(post);
                 } else {
+                    if (typeof window.renderDetailAttachmentsDirect === "function") {
+                        window.renderDetailAttachmentsDirect(post, false);
+                    }
                     // Render Member-Only Blur + 10초 만에 가입하기 CTA (clean, no fake member/visitor stats)
                     if (bodyEl) {
                         bodyEl.innerHTML = `
@@ -578,6 +567,154 @@
             window.scrollTo({ top: 120, behavior: 'smooth' });
         };
 
+        function isMyCafeCommentDirect(c) {
+            if (!c) return false;
+            var curUser = (localStorage.getItem("naverLoggedInUser") || "").trim();
+            var curId = (localStorage.getItem("naverLoggedInUserId") || "").trim();
+            var curUsername = (localStorage.getItem("naverLoggedInUsername") || "").trim();
+            var author = (c.author || "").trim();
+            var authorId = (c.authorId || "").trim();
+            if (curId && authorId && curId === authorId) return true;
+            if (curUser && author && (author === curUser || author.includes(curUser) || curUser.includes(author))) return true;
+            if (curId && author && author.includes(curId)) return true;
+            if (curUsername && author && author.includes(curUsername)) return true;
+            return false;
+        }
+        window.isMyCafeCommentDirect = isMyCafeCommentDirect;
+
+        window.toggleCommentMenuDirect = function(commentId, e) {
+            if (e) e.stopPropagation();
+            var allMenus = document.querySelectorAll(".comment-more-dropdown");
+            var targetMenu = document.getElementById("comment-menu-" + commentId);
+            allMenus.forEach(function(m) {
+                if (m !== targetMenu) m.classList.remove("open");
+            });
+            if (targetMenu) {
+                targetMenu.classList.toggle("open");
+            }
+        };
+
+        document.addEventListener("click", function() {
+            var allMenus = document.querySelectorAll(".comment-more-dropdown.open");
+            allMenus.forEach(function(m) { m.classList.remove("open"); });
+        });
+
+        window.startEditCommentDirect = function(commentId) {
+            var menu = document.getElementById("comment-menu-" + commentId);
+            if (menu) menu.classList.remove("open");
+            var textEl = document.getElementById("comment-text-" + commentId);
+            var editBox = document.getElementById("comment-edit-box-" + commentId);
+            var textarea = document.getElementById("comment-edit-input-" + commentId);
+            if (textEl) textEl.style.display = "none";
+            if (editBox) editBox.style.display = "flex";
+            if (textarea) {
+                textarea.focus();
+                textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+            }
+        };
+
+        window.cancelEditCommentDirect = function(commentId) {
+            var textEl = document.getElementById("comment-text-" + commentId);
+            var editBox = document.getElementById("comment-edit-box-" + commentId);
+            if (editBox) editBox.style.display = "none";
+            if (textEl) textEl.style.display = "block";
+        };
+
+        window.saveEditCommentDirect = async function(commentId) {
+            var textarea = document.getElementById("comment-edit-input-" + commentId);
+            var newText = textarea ? textarea.value.trim() : "";
+            if (!newText) {
+                alert("댓글 내용을 입력해주세요.");
+                if (textarea) textarea.focus();
+                return;
+            }
+            var postId = window.currentViewingPostId;
+            if (!postId) return;
+            var pbUrl = "https://pb.joyfamkr.synology.me";
+            var updatedComments = [];
+
+            if (String(postId).indexOf("p_") !== 0) {
+                try {
+                    var getRes = await fetch(pbUrl + "/api/collections/cafe_posts/records/" + postId);
+                    if (getRes.ok) {
+                        var remotePost = await getRes.json();
+                        var rComms = Array.isArray(remotePost.comments) ? remotePost.comments : [];
+                        updatedComments = rComms.map(function(cm) {
+                            if (String(cm.id) === String(commentId)) {
+                                return Object.assign({}, cm, { text: newText });
+                            }
+                            return cm;
+                        });
+                        await fetch(pbUrl + "/api/collections/cafe_posts/records/" + postId, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ comments: updatedComments })
+                        });
+                    }
+                } catch (e) {
+                    console.warn("Save comment edit PB error:", e);
+                }
+            }
+
+            var cafe = window.currentCafeRecord || {};
+            var posts = Array.isArray(cafe.posts) ? cafe.posts : [];
+            var targetPost = posts.find(function(p) { return p.id === postId; });
+            if (targetPost) {
+                if (updatedComments.length > 0) {
+                    targetPost.comments = updatedComments;
+                } else if (Array.isArray(targetPost.comments)) {
+                    targetPost.comments.forEach(function(cm) {
+                        if (String(cm.id) === String(commentId)) cm.text = newText;
+                    });
+                }
+                renderCommentsDirect(targetPost);
+            } else {
+                renderCommentsDirect({ comments: updatedComments });
+            }
+        };
+
+        window.deleteCommentDirect = async function(commentId) {
+            var menu = document.getElementById("comment-menu-" + commentId);
+            if (menu) menu.classList.remove("open");
+            if (!confirm("댓글을 삭제하시겠습니까?")) return;
+
+            var postId = window.currentViewingPostId;
+            if (!postId) return;
+            var pbUrl = "https://pb.joyfamkr.synology.me";
+            var updatedComments = null;
+
+            if (String(postId).indexOf("p_") !== 0) {
+                try {
+                    var getRes = await fetch(pbUrl + "/api/collections/cafe_posts/records/" + postId);
+                    if (getRes.ok) {
+                        var remotePost = await getRes.json();
+                        var rComms = Array.isArray(remotePost.comments) ? remotePost.comments : [];
+                        updatedComments = rComms.filter(function(cm) { return String(cm.id) !== String(commentId); });
+                        await fetch(pbUrl + "/api/collections/cafe_posts/records/" + postId, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ comments: updatedComments })
+                        });
+                    }
+                } catch (e) {
+                    console.warn("Delete comment PB error:", e);
+                }
+            }
+
+            var cafe = window.currentCafeRecord || {};
+            var posts = Array.isArray(cafe.posts) ? cafe.posts : [];
+            var targetPost = posts.find(function(p) { return p.id === postId; });
+            if (targetPost) {
+                targetPost.comments = updatedComments !== null
+                    ? updatedComments
+                    : (targetPost.comments || []).filter(function(cm) { return String(cm.id) !== String(commentId); });
+                targetPost.commentsCount = targetPost.comments.length;
+                renderCommentsDirect(targetPost);
+            } else if (updatedComments !== null) {
+                renderCommentsDirect({ comments: updatedComments });
+            }
+        };
+
         function renderCommentsDirect(post) {
             if (!post) return;
             var listContainer = document.getElementById("comment-list-container");
@@ -596,7 +733,9 @@
                 return;
             }
 
-            comments.forEach(function(c) {
+            comments.forEach(function(c, idx) {
+                var cId = c.id || ("c_idx_" + idx);
+                c.id = cId;
                 var item = document.createElement("div");
                 item.className = "comment-item";
                 var authorNick = c.author || "익명";
@@ -609,22 +748,51 @@
                     }
                 }
 
+                var isMine = isMyCafeCommentDirect(c);
+                var moreMenuHtml = isMine ? (
+                    '<div class="comment-more-wrap">' +
+                        '<button type="button" class="btn-comment-more" onclick="toggleCommentMenuDirect(\'' + cId + '\', event)" title="댓글 메뉴">' +
+                            '<i class="fa-solid fa-ellipsis"></i>' +
+                        '</button>' +
+                        '<div class="comment-more-dropdown" id="comment-menu-' + cId + '" onclick="event.stopPropagation()">' +
+                            '<button type="button" class="btn-comment-menu-item" onclick="startEditCommentDirect(\'' + cId + '\')">수정</button>' +
+                            '<button type="button" class="btn-comment-menu-item" onclick="deleteCommentDirect(\'' + cId + '\')">삭제</button>' +
+                        '</div>' +
+                    '</div>'
+                ) : '';
+
+                var safeText = (c.text || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
                 item.innerHTML = 
                     '<div class="comment-avatar"><img src="' + avatarUrl + '" style="width: 100%; height: 100%; border-radius: 50%; object-fit: cover;"></div>' +
                     '<div class="comment-body">' +
                         '<div class="comment-header-line">' +
-                            '<span class="comment-author">' + authorNick + authorIdMask + '</span>' +
-                            '<span class="comment-date">' + (c.time || "방금 전") + '</span>' +
+                            '<div class="comment-header-left">' +
+                                '<span class="comment-author">' + authorNick + authorIdMask + '</span>' +
+                                '<span class="comment-date">' + (c.time || "방금 전") + '</span>' +
+                            '</div>' +
+                            moreMenuHtml +
                         '</div>' +
-                        '<div class="comment-text">' + (c.text || "") + '</div>' +
+                        '<div class="comment-text" id="comment-text-' + cId + '">' + safeText + '</div>' +
+                        (isMine ? (
+                            '<div class="comment-edit-box" id="comment-edit-box-' + cId + '" style="display: none;">' +
+                                '<textarea class="comment-edit-textarea" id="comment-edit-input-' + cId + '" rows="2">' + safeText + '</textarea>' +
+                                '<div class="comment-edit-actions">' +
+                                    '<button type="button" class="btn-comment-edit-cancel" onclick="cancelEditCommentDirect(\'' + cId + '\')">취소</button>' +
+                                    '<button type="button" class="btn-comment-edit-save" onclick="saveEditCommentDirect(\'' + cId + '\')">등록</button>' +
+                                '</div>' +
+                            '</div>'
+                        ) : '') +
                     '</div>';
                 listContainer.appendChild(item);
             });
         }
         window.renderComments = renderCommentsDirect;
 
+        var isSubmittingCafeComment = false;
         async function submitCommentDirect() {
-            var isAuth = localStorage.getItem("naverIsLoggedIn") === "true";
+            if (isSubmittingCafeComment) return;
+            var isAuth = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
             if (!isAuth) {
                 alert("댓글을 작성하려면 먼저 로그인이 필요합니다.");
                 return;
@@ -638,52 +806,263 @@
                 return;
             }
 
-            var postId = window.currentViewingPostId;
-            var cafe = window.currentCafeRecord || {};
-            var now = new Date();
-            var year = now.getFullYear();
-            var month = String(now.getMonth() + 1).padStart(2, "0");
-            var day = String(now.getDate()).padStart(2, "0");
-            var hours = String(now.getHours()).padStart(2, "0");
-            var mins = String(now.getMinutes()).padStart(2, "0");
-            var timeStr = year + "." + month + "." + day + ". " + hours + ":" + mins;
-            var activeNick = (localStorage.getItem("naverLoggedInUser") || "새회원").trim();
+            isSubmittingCafeComment = true;
+            try {
+                var postId = window.currentViewingPostId;
+                var cafe = window.currentCafeRecord || {};
+                var now = new Date();
+                var year = now.getFullYear();
+                var month = String(now.getMonth() + 1).padStart(2, "0");
+                var day = String(now.getDate()).padStart(2, "0");
+                var hours = String(now.getHours()).padStart(2, "0");
+                var mins = String(now.getMinutes()).padStart(2, "0");
+                var timeStr = year + "." + month + "." + day + ". " + hours + ":" + mins;
+                var activeNick = (localStorage.getItem("naverLoggedInUser") || "새회원").trim();
 
-            var newComment = {
-                id: "c_" + Date.now(),
-                author: activeNick,
-                time: timeStr,
-                text: text
-            };
+                var newComment = {
+                    id: "c_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+                    author: activeNick,
+                    authorId: (localStorage.getItem("naverLoggedInUserId") || "").trim(),
+                    time: timeStr,
+                    text: text
+                };
 
-            var targetPost = null;
-            await fetchAndMergeCafeRecordDirect(cafe, function(c) {
-                var rawPosts = c.posts || [];
-                var posts = typeof rawPosts === 'string' ? JSON.parse(rawPosts) : (Array.isArray(rawPosts) ? rawPosts : []);
-                var post = posts.find(function(p) { return p.id === postId; });
-                if (post) {
-                    if (!Array.isArray(post.comments)) post.comments = [];
-                    if (!post.comments.some(function(cm) { return cm.id === newComment.id; })) {
-                        post.comments.push(newComment);
+                var pbUrl = "https://pb.joyfamkr.synology.me";
+                var mergedComments = [newComment];
+
+                if (postId && String(postId).indexOf("p_") !== 0) {
+                    try {
+                        var getRes = await fetch(pbUrl + "/api/collections/cafe_posts/records/" + postId);
+                        if (getRes.ok) {
+                            var remotePost = await getRes.json();
+                            var rComms = Array.isArray(remotePost.comments) ? remotePost.comments : [];
+                            mergedComments = rComms.slice();
+                            if (!mergedComments.some(function(cm) { return cm.id === newComment.id; })) {
+                                mergedComments.push(newComment);
+                            }
+                            await fetch(pbUrl + "/api/collections/cafe_posts/records/" + postId, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ comments: mergedComments })
+                            });
+                        }
+                    } catch (e) {
+                        console.warn("Comment PB sync error:", e);
                     }
-                    post.commentsCount = post.comments.length;
-                    targetPost = post;
                 }
-                c.posts = posts;
-            });
-            window.currentCafeRecord = cafe;
 
-            // Clear input & reset button
-            if (input) input.value = "";
-            var submitBtn = document.getElementById("btn-comment-submit");
-            if (submitBtn) submitBtn.classList.remove("active");
+                var rawPosts = cafe.posts || [];
+                var posts = typeof rawPosts === 'string' ? JSON.parse(rawPosts) : (Array.isArray(rawPosts) ? rawPosts : []);
+                var targetPost = posts.find(function(p) { return p.id === postId; });
+                if (targetPost) {
+                    targetPost.comments = mergedComments;
+                    targetPost.commentsCount = mergedComments.length;
+                }
+                cafe.posts = posts;
+                window.currentCafeRecord = cafe;
 
-            // Re-render comments list immediately
-            if (targetPost) {
-                renderCommentsDirect(targetPost);
+                // Clear input & reset button
+                if (input) input.value = "";
+                var submitBtn = document.getElementById("btn-comment-submit");
+                if (submitBtn) submitBtn.classList.remove("active");
+
+                // Re-render comments list immediately
+                if (targetPost) {
+                    renderCommentsDirect(targetPost);
+                } else {
+                    renderCommentsDirect({ comments: mergedComments });
+                }
+            } finally {
+                isSubmittingCafeComment = false;
             }
         }
         window.submitComment = submitCommentDirect;
+
+        window.attachedCafeFiles = [];
+
+        window.formatCafeFileSize = function(bytes) {
+            if (!bytes || isNaN(bytes) || bytes <= 0) return "0KB";
+            if (bytes >= 1024 * 1024) {
+                return (bytes / (1024 * 1024)).toFixed(2) + "MB";
+            }
+            return Math.max(1, Math.round(bytes / 1024)) + "KB";
+        };
+
+        window.triggerFileUploadDirect = function() {
+            var fileInput = document.getElementById("write-file-upload");
+            if (fileInput) fileInput.click();
+        };
+
+        window.handleFileUploadDirect = function(input) {
+            if (!input || !input.files || input.files.length === 0) return;
+            if (!Array.isArray(window.attachedCafeFiles)) window.attachedCafeFiles = [];
+            var selected = Array.from(input.files);
+            input.value = "";
+            for (var i = 0; i < selected.length; i++) {
+                if (window.attachedCafeFiles.length >= 10) {
+                    alert("첨부파일은 최대 10개까지 등록할 수 있습니다.");
+                    break;
+                }
+                window.attachedCafeFiles.push(selected[i]);
+            }
+            window.renderWriteAttachmentsDirect();
+        };
+
+        window.removeAttachedCafeFileDirect = function(idx) {
+            if (!Array.isArray(window.attachedCafeFiles)) return;
+            window.attachedCafeFiles.splice(idx, 1);
+            window.renderWriteAttachmentsDirect();
+        };
+
+        window.renderWriteAttachmentsDirect = function() {
+            var box = document.getElementById("write-attachments-box");
+            var countEl = document.getElementById("write-attach-count");
+            var listEl = document.getElementById("write-attachments-list");
+            if (!box || !listEl) return;
+
+            var files = Array.isArray(window.attachedCafeFiles) ? window.attachedCafeFiles : [];
+            if (countEl) countEl.textContent = files.length;
+
+            if (files.length === 0) {
+                box.style.display = "none";
+                listEl.innerHTML = "";
+                return;
+            }
+
+            box.style.display = "block";
+            listEl.innerHTML = "";
+            files.forEach(function(file, idx) {
+                var item = document.createElement("div");
+                item.className = "cafe-attach-item";
+                var safeName = (file.name || "첨부파일").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                var sizeStr = window.formatCafeFileSize(file.size || 0);
+                item.innerHTML =
+                    '<div class="cafe-attach-left">' +
+                        '<i class="fa-regular fa-file-lines"></i>' +
+                        '<span class="cafe-attach-name" title="' + safeName + '">' + safeName + '</span>' +
+                        '<span class="cafe-attach-size">(' + sizeStr + ')</span>' +
+                    '</div>' +
+                    '<div class="cafe-attach-actions">' +
+                        '<button type="button" class="btn-cafe-attach-remove" onclick="removeAttachedCafeFileDirect(' + idx + ')">삭제</button>' +
+                    '</div>';
+                listEl.appendChild(item);
+            });
+        };
+
+        window.parseCafePostAttachments = function(post) {
+            if (!post) return { cleanContent: "", attachments: [] };
+            var rawBody = post.content || "";
+            var metaAttachments = [];
+            var cleanBody = rawBody;
+
+            var metaMatch = rawBody.match(/<!-- EDUVER_ATTACH_META_START --><script type="application\/json" class="eduver-attach-meta">([\s\S]*?)<\/script><!-- EDUVER_ATTACH_META_END -->/);
+            if (metaMatch && metaMatch[1]) {
+                try {
+                    metaAttachments = JSON.parse(decodeURIComponent(metaMatch[1]));
+                } catch (e) {}
+                cleanBody = rawBody.replace(metaMatch[0], "");
+            } else {
+                var legacyMatch = rawBody.match(/<script type="application\/json" class="eduver-attach-meta">([\s\S]*?)<\/script>/);
+                if (legacyMatch && legacyMatch[1]) {
+                    try {
+                        metaAttachments = JSON.parse(decodeURIComponent(legacyMatch[1]));
+                    } catch (e) {}
+                    cleanBody = rawBody.replace(legacyMatch[0], "");
+                }
+            }
+
+            var pbUrl = "https://pb.joyfamkr.synology.me";
+            var rawAttachList = Array.isArray(post.attachments) ? post.attachments : [];
+            var mappedAttachments = rawAttachList.map(function(fname, idx) {
+                if (typeof fname === "object" && fname !== null) return fname;
+                var meta = metaAttachments[idx] || {};
+                var displayName = meta.name || String(fname).replace(/_[a-zA-Z0-9]{10}(\.[a-zA-Z0-9]+)$/, "$1");
+                var colId = post.collectionId || "cafe_posts";
+                return {
+                    name: displayName,
+                    originalFileName: fname,
+                    size: meta.size || "첨부파일",
+                    url: pbUrl + "/api/files/" + colId + "/" + post.id + "/" + encodeURIComponent(fname) + "?download=1"
+                };
+            });
+
+            return {
+                cleanContent: cleanBody,
+                attachments: mappedAttachments
+            };
+        };
+
+        window.downloadCafeAttachmentDirect = async function(url, filename, btnEl) {
+            if (!url) return;
+            var origText = btnEl ? btnEl.innerHTML : "";
+            try {
+                if (btnEl) {
+                    btnEl.disabled = true;
+                    btnEl.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 저장 중...';
+                }
+                var res = await fetch(url);
+                if (!res.ok) throw new Error("Download failed");
+                var blob = await res.blob();
+                var blobUrl = URL.createObjectURL(blob);
+                var a = document.createElement("a");
+                a.href = blobUrl;
+                a.download = filename || "attachment";
+                document.body.appendChild(a);
+                a.click();
+                setTimeout(function() {
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(blobUrl);
+                }, 200);
+            } catch (e) {
+                window.open(url, "_blank");
+            } finally {
+                if (btnEl) {
+                    btnEl.disabled = false;
+                    btnEl.innerHTML = origText;
+                }
+            }
+        };
+
+        window.renderDetailAttachmentsDirect = function(post, isMember) {
+            var box = document.getElementById("detail-attachments-box");
+            if (!box) return;
+            if (!isMember || !post) {
+                box.style.display = "none";
+                box.innerHTML = "";
+                return;
+            }
+            var parsed = window.parseCafePostAttachments(post);
+            var list = parsed.attachments || [];
+            if (list.length === 0) {
+                box.style.display = "none";
+                box.innerHTML = "";
+                return;
+            }
+
+            box.style.display = "block";
+            var html = '<div class="detail-attachments-header"><i class="fa-solid fa-paperclip"></i> 첨부파일 <strong>' + list.length + '</strong>개</div>';
+            html += '<div class="detail-attachments-list">';
+            list.forEach(function(att, idx) {
+                var safeName = (att.name || "첨부파일").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+                var jsSafeName = (att.name || "첨부파일").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+                var jsSafeUrl = (att.url || "").replace(/\\/g, "\\\\").replace(/'/g, "\\'");
+                html +=
+                    '<div class="cafe-attach-item">' +
+                        '<div class="cafe-attach-left">' +
+                            '<i class="fa-regular fa-file-lines"></i>' +
+                            '<span class="cafe-attach-name" title="' + safeName + '">' + safeName + '</span>' +
+                            '<span class="cafe-attach-size">(' + (att.size || "첨부파일") + ')</span>' +
+                        '</div>' +
+                        '<div class="cafe-attach-actions">' +
+                            '<button type="button" class="btn-cafe-attach-download" onclick="downloadCafeAttachmentDirect(\'' + jsSafeUrl + '\', \'' + jsSafeName + '\', this)">' +
+                                '<i class="fa-solid fa-download"></i> PC 저장' +
+                            '</button>' +
+                        '</div>' +
+                    '</div>';
+            });
+            html += '</div>';
+            box.innerHTML = html;
+        };
 
         window.triggerPhotoUploadDirect = function() {
             var fileInput = document.getElementById("write-photo-upload") || document.getElementById("full-write-photo-file");
@@ -734,21 +1113,75 @@
             var timeStr = year + "." + month + "." + day + ".";
 
             if (!window.currentCafeRecord) window.currentCafeRecord = {};
+            var pbUrl = "https://pb.joyfamkr.synology.me";
+            var finalContent = contentHtml || (title + " 본문 내용입니다.");
+            var filesToUpload = Array.isArray(window.attachedCafeFiles) ? window.attachedCafeFiles.slice() : [];
+
+            if (filesToUpload.length > 0) {
+                var metaList = filesToUpload.map(function(f) {
+                    return { name: f.name, size: window.formatCafeFileSize(f.size || 0) };
+                });
+                finalContent += '<!-- EDUVER_ATTACH_META_START --><script type="application/json" class="eduver-attach-meta">' + encodeURIComponent(JSON.stringify(metaList)) + '<\/script><!-- EDUVER_ATTACH_META_END -->';
+            }
 
             if (window.currentEditingPostId) {
                 var editedId = window.currentEditingPostId;
                 window.currentEditingPostId = null;
+                var updatedAttachments = null;
 
-                await fetchAndMergeCafeRecordDirect(window.currentCafeRecord, function(c) {
-                    if (!Array.isArray(c.posts)) c.posts = [];
-                    var pIdx = c.posts.findIndex(function(p) { return p.id === editedId; });
-                    if (pIdx !== -1) {
-                        c.posts[pIdx].title = title;
-                        c.posts[pIdx].board = board;
-                        c.posts[pIdx].content = contentHtml || (title + " 본문 내용입니다.");
-                        c.posts[pIdx].isNotice = isNotice;
+                if (String(editedId).indexOf("p_") !== 0) {
+                    try {
+                        var patchRes;
+                        if (filesToUpload.length > 0) {
+                            var editFormData = new FormData();
+                            editFormData.append("title", title);
+                            editFormData.append("board", board);
+                            editFormData.append("content", finalContent);
+                            editFormData.append("isNotice", isNotice ? "true" : "false");
+                            filesToUpload.forEach(function(file) {
+                                editFormData.append("attachments", file);
+                            });
+                            patchRes = await fetch(pbUrl + "/api/collections/cafe_posts/records/" + editedId, {
+                                method: "PATCH",
+                                body: editFormData
+                            });
+                        } else {
+                            patchRes = await fetch(pbUrl + "/api/collections/cafe_posts/records/" + editedId, {
+                                method: "PATCH",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({
+                                    title: title,
+                                    board: board,
+                                    content: finalContent,
+                                    isNotice: isNotice
+                                })
+                            });
+                        }
+                        if (patchRes && patchRes.ok) {
+                            var patchedData = await patchRes.json();
+                            if (patchedData && Array.isArray(patchedData.attachments)) {
+                                updatedAttachments = patchedData.attachments;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn("PB edit cafe_post error:", e);
                     }
-                });
+                }
+
+                window.attachedCafeFiles = [];
+                window.renderWriteAttachmentsDirect();
+
+                if (!Array.isArray(window.currentCafeRecord.posts)) window.currentCafeRecord.posts = [];
+                var pIdx = window.currentCafeRecord.posts.findIndex(function(p) { return p.id === editedId; });
+                if (pIdx !== -1) {
+                    window.currentCafeRecord.posts[pIdx].title = title;
+                    window.currentCafeRecord.posts[pIdx].board = board;
+                    window.currentCafeRecord.posts[pIdx].content = finalContent;
+                    window.currentCafeRecord.posts[pIdx].isNotice = isNotice;
+                    if (updatedAttachments) {
+                        window.currentCafeRecord.posts[pIdx].attachments = updatedAttachments;
+                    }
+                }
 
                 var wView = document.getElementById("cafe-write-full-view");
                 var grid = document.querySelector(".cafe-layout-grid");
@@ -762,25 +1195,85 @@
 
             var newPost = {
                 id: "p_" + Date.now(),
+                collectionId: "cafe_posts",
+                cafeId: window.currentCafeRecord.id || "",
+                cafeName: window.currentCafeRecord.name || "",
                 title: title,
                 author: curAuthor,
+                authorId: localStorage.getItem("naverLoggedInUserId") || "",
                 time: timeStr,
                 views: 0,
                 likes: 0,
                 commentsCount: 0,
                 comments: [],
+                attachments: [],
                 board: board,
-                content: contentHtml || (title + " 본문 내용입니다."),
+                content: finalContent,
                 isNotice: isNotice
             };
 
-            await fetchAndMergeCafeRecordDirect(window.currentCafeRecord, function(c) {
-                if (!Array.isArray(c.posts)) c.posts = [];
-                if (!c.posts.some(function(p) { return p.id === newPost.id; })) {
-                    c.posts.unshift(newPost);
+            try {
+                var createRes;
+                if (filesToUpload.length > 0) {
+                    var formData = new FormData();
+                    formData.append("cafeId", newPost.cafeId);
+                    formData.append("cafeName", newPost.cafeName);
+                    formData.append("board", newPost.board);
+                    formData.append("title", newPost.title);
+                    formData.append("content", newPost.content);
+                    formData.append("author", newPost.author);
+                    formData.append("authorId", newPost.authorId);
+                    formData.append("isNotice", newPost.isNotice ? "true" : "false");
+                    formData.append("views", "0");
+                    formData.append("likes", "0");
+                    formData.append("comments", "[]");
+                    formData.append("time", newPost.time);
+                    filesToUpload.forEach(function(file) {
+                        formData.append("attachments", file);
+                    });
+                    createRes = await fetch(pbUrl + "/api/collections/cafe_posts/records", {
+                        method: "POST",
+                        body: formData
+                    });
+                } else {
+                    createRes = await fetch(pbUrl + "/api/collections/cafe_posts/records", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            cafeId: newPost.cafeId,
+                            cafeName: newPost.cafeName,
+                            board: newPost.board,
+                            title: newPost.title,
+                            content: newPost.content,
+                            author: newPost.author,
+                            authorId: newPost.authorId,
+                            isNotice: newPost.isNotice,
+                            views: 0,
+                            likes: 0,
+                            comments: [],
+                            time: newPost.time
+                        })
+                    });
                 }
-                c.newPostsToday = (c.newPostsToday || 0) + 1;
-            });
+                if (createRes && createRes.ok) {
+                    var createdData = await createRes.json();
+                    if (createdData && createdData.id) {
+                        newPost.id = createdData.id;
+                        newPost.collectionId = createdData.collectionId || "cafe_posts";
+                        newPost.attachments = Array.isArray(createdData.attachments) ? createdData.attachments : [];
+                    }
+                }
+            } catch (e) {
+                console.warn("PB create cafe_post error:", e);
+            }
+
+            window.attachedCafeFiles = [];
+            window.renderWriteAttachmentsDirect();
+
+            if (!Array.isArray(window.currentCafeRecord.posts)) window.currentCafeRecord.posts = [];
+            window.currentCafeRecord.posts.unshift(newPost);
+            window.currentCafeRecord.newPostsToday = window.currentCafeRecord.posts.length;
+            await fetchAndMergeCafeRecordDirect(window.currentCafeRecord);
 
             // Re-render table directly
             var tbody = document.getElementById('cafe-post-tbody');
@@ -794,11 +1287,12 @@
                     var pTime = (post.time && typeof post.time === 'string') ? (post.time.indexOf(' ') > -1 ? post.time.split(' ')[0] : post.time) : '2026.08.23';
                     var commCount = Array.isArray(post.comments) ? post.comments.length : (parseInt(post.commentsCount, 10) || 0);
                     var commBadge = commCount > 0 ? '<span class="badge-post-comment-count">[' + commCount + ']</span>' : '';
+                    var clipBadge = (Array.isArray(post.attachments) && post.attachments.length > 0) ? '<i class="fa-solid fa-paperclip badge-post-file-clip" title="첨부파일"></i>' : '';
 
                     tr.innerHTML = 
                         '<td class="td-check"><input type="checkbox" class="post-check-item" data-id="' + (post.id || '') + '"></td>' +
                         '<td>' + numOrBadge + '</td>' +
-                        '<td class="td-board-title" style="cursor:pointer;" onclick="openPostDetailDirect(\'' + (post.id || '') + '\')"><span class="post-link-text" style="' + (post.isNotice ? 'color:#eb5757; font-weight:700;' : '') + '">' + (post.title || '(제목 없음)') + '</span>' + commBadge + '<span class="badge-n-dot">N</span></td>' +
+                        '<td class="td-board-title" style="cursor:pointer;" onclick="openPostDetailDirect(\'' + (post.id || '') + '\')"><span class="post-link-text" style="' + (post.isNotice ? 'color:#eb5757; font-weight:700;' : '') + '">' + (post.title || '(제목 없음)') + '</span>' + clipBadge + commBadge + '<span class="badge-n-dot">N</span></td>' +
                         '<td>' + (post.author || '익명') + '</td>' +
                         '<td>' + pTime + '</td>' +
                         '<td>' + (post.views || 0) + '</td>' +
@@ -877,11 +1371,12 @@
                         var pTime = (post.time && typeof post.time === 'string') ? (post.time.indexOf(' ') > -1 ? post.time.split(' ')[0] : post.time) : '2026.08.23';
                         var commCount = Array.isArray(post.comments) ? post.comments.length : (parseInt(post.commentsCount, 10) || 0);
                         var commBadge = commCount > 0 ? '<span class="badge-post-comment-count">[' + commCount + ']</span>' : '';
+                        var clipBadge = (Array.isArray(post.attachments) && post.attachments.length > 0) ? '<i class="fa-solid fa-paperclip badge-post-file-clip" title="첨부파일"></i>' : '';
 
                         tr.innerHTML = 
                             '<td class="td-check"><input type="checkbox" class="post-check-item" data-id="' + (post.id || '') + '"></td>' +
                             '<td>' + numOrBadge + '</td>' +
-                            '<td class="td-board-title" style="cursor:pointer;" onclick="openPostDetailDirect(\'' + (post.id || '') + '\')"><span class="post-link-text" style="' + (post.isNotice ? 'color:#eb5757; font-weight:700;' : '') + '">' + (post.title || '(제목 없음)') + '</span>' + commBadge + '<span class="badge-n-dot">N</span></td>' +
+                            '<td class="td-board-title" style="cursor:pointer;" onclick="openPostDetailDirect(\'' + (post.id || '') + '\')"><span class="post-link-text" style="' + (post.isNotice ? 'color:#eb5757; font-weight:700;' : '') + '">' + (post.title || '(제목 없음)') + '</span>' + clipBadge + commBadge + '<span class="badge-n-dot">N</span></td>' +
                             '<td>' + (post.author || '익명') + '</td>' +
                             '<td>' + pTime + '</td>' +
                             '<td>' + (post.views || 0) + '</td>' +
@@ -1531,32 +2026,57 @@
                                         if (btnWrite) btnWrite.style.display = "none";
                                     }
 
-                                    // 2. Render Posts directly
-                                    var posts = cafe.posts;
-                                    if (typeof posts === 'string') {
-                                        try { posts = JSON.parse(posts); } catch(e) { posts = []; }
-                                    }
-                                    if (Array.isArray(posts) && posts.length > 0 && tbody) {
-                                        tbody.innerHTML = '';
-                                        posts.forEach(function(post, index) {
-                                            var tr = document.createElement('tr');
-                                            if (post.isNotice) tr.className = 'notice-tr';
-                                            var numOrBadge = post.isNotice ? '<span class="badge-table-notice">공지</span>' : (posts.length - index);
-                                            var pTime = (post.time && typeof post.time === 'string') ? (post.time.indexOf(' ') > -1 ? post.time.split(' ')[0] : post.time) : '2026.08.23';
-                                            var commCount = Array.isArray(post.comments) ? post.comments.length : (parseInt(post.commentsCount, 10) || 0);
-                                            var commBadge = commCount > 0 ? '<span class="badge-post-comment-count">[' + commCount + ']</span>' : '';
+                                    // 2. Fetch and Render Posts from cafe_posts collection
+                                    fetch('https://pb.joyfamkr.synology.me/api/collections/cafe_posts/records?filter=' + encodeURIComponent("(cafeId='" + cafe.id + "')") + '&sort=-isNotice,-created&perPage=200')
+                                        .then(function(pRes) { return pRes.json(); })
+                                        .then(function(pData) {
+                                            var posts = (pData && Array.isArray(pData.items)) ? pData.items.map(function(item) {
+                                                var commArr = Array.isArray(item.comments) ? item.comments : [];
+                                                return {
+                                                    id: item.id,
+                                                    collectionId: item.collectionId || 'cafe_posts',
+                                                    cafeId: item.cafeId,
+                                                    board: item.board || '자유게시판',
+                                                    title: item.title || '(제목 없음)',
+                                                    content: item.content || '',
+                                                    author: item.author || cafe.manager || '익명',
+                                                    authorId: item.authorId || '',
+                                                    isNotice: Boolean(item.isNotice),
+                                                    views: item.views || 0,
+                                                    likes: item.likes || 0,
+                                                    comments: commArr,
+                                                    commentsCount: commArr.length,
+                                                    attachments: Array.isArray(item.attachments) ? item.attachments : [],
+                                                    time: item.time || (item.created ? item.created.split(' ')[0].replace(/-/g, '.') + '.' : '2026.08.23.')
+                                                };
+                                            }) : [];
+                                            cafe.posts = posts;
+                                            window.currentCafeRecord = cafe;
+                                            var totalBadge = document.getElementById('sidebar-total-posts');
+                                            if (totalBadge) totalBadge.textContent = posts.length;
+                                            if (posts.length > 0 && tbody) {
+                                                tbody.innerHTML = '';
+                                                posts.forEach(function(post, index) {
+                                                    var tr = document.createElement('tr');
+                                                    if (post.isNotice) tr.className = 'notice-tr';
+                                                    var numOrBadge = post.isNotice ? '<span class="badge-table-notice">공지</span>' : (posts.length - index);
+                                                    var pTime = (post.time && typeof post.time === 'string') ? (post.time.indexOf(' ') > -1 ? post.time.split(' ')[0] : post.time) : '2026.08.23';
+                                                    var commCount = Array.isArray(post.comments) ? post.comments.length : (parseInt(post.commentsCount, 10) || 0);
+                                                    var commBadge = commCount > 0 ? '<span class="badge-post-comment-count">[' + commCount + ']</span>' : '';
+                                                    var clipBadge = (Array.isArray(post.attachments) && post.attachments.length > 0) ? '<i class="fa-solid fa-paperclip badge-post-file-clip" title="첨부파일"></i>' : '';
 
-                                            tr.innerHTML = 
-                                                '<td class="td-check"><input type="checkbox" class="post-check-item" data-id="' + (post.id || '') + '"></td>' +
-                                                '<td>' + numOrBadge + '</td>' +
-                                                '<td class="td-board-title" style="cursor:pointer;" onclick="openPostDetailDirect(\'' + (post.id || '') + '\')"><span class="post-link-text" style="' + (post.isNotice ? 'color:#eb5757; font-weight:700;' : '') + '">' + (post.title || '(제목 없음)') + '</span>' + commBadge + '<span class="badge-n-dot">N</span></td>' +
-                                                '<td>' + (post.author || cafe.manager || '익명') + '</td>' +
-                                                '<td>' + pTime + '</td>' +
-                                                '<td>' + (post.views || 0) + '</td>' +
-                                                '<td>' + (post.likes || 0) + '</td>';
-                                            tbody.appendChild(tr);
-                                        });
-                                    }
+                                                    tr.innerHTML = 
+                                                        '<td class="td-check"><input type="checkbox" class="post-check-item" data-id="' + (post.id || '') + '"></td>' +
+                                                        '<td>' + numOrBadge + '</td>' +
+                                                        '<td class="td-board-title" style="cursor:pointer;" onclick="openPostDetailDirect(\'' + (post.id || '') + '\')"><span class="post-link-text" style="' + (post.isNotice ? 'color:#eb5757; font-weight:700;' : '') + '">' + (post.title || '(제목 없음)') + '</span>' + clipBadge + commBadge + '<span class="badge-n-dot">N</span></td>' +
+                                                        '<td>' + (post.author || cafe.manager || '익명') + '</td>' +
+                                                        '<td>' + pTime + '</td>' +
+                                                        '<td>' + (post.views || 0) + '</td>' +
+                                                        '<td>' + (post.likes || 0) + '</td>';
+                                                    tbody.appendChild(tr);
+                                                });
+                                            }
+                                        }).catch(function(err) { console.log('Early cafe_posts sync:', err); });
                                 }
                             }).catch(function(err) { console.log('Early PB sync:', err); });
                     } catch(e) {}
@@ -1860,6 +2380,9 @@
                         </div>
 
                         <div class="post-detail-divider"></div>
+
+                        <!-- Post Attachments Box (첨부파일 다운로드 영역) -->
+                        <div class="detail-attachments-box" id="detail-attachments-box" style="display: none;"></div>
 
                         <!-- Post Text Content -->
                         <div class="post-content-body" id="detail-post-content-body">
@@ -2194,7 +2717,7 @@
                             <button type="button" class="btn-tool-icon" title="스티커"><i class="fa-regular fa-face-smile"></i><span>스티커</span></button>
                             <button type="button" class="btn-tool-icon" id="btn-tool-quote" title="인용구"><i class="fa-solid fa-quote-left"></i><span>인용구</span><i class="fa-solid fa-caret-down mini-caret"></i></button>
                             <button type="button" class="btn-tool-icon" id="btn-tool-divider" title="구분선"><i class="fa-solid fa-minus"></i><span>구분선</span><i class="fa-solid fa-caret-down mini-caret"></i></button>
-                            <button type="button" class="btn-tool-icon" title="파일"><i class="fa-regular fa-folder-open"></i><span>파일</span></button>
+                            <button type="button" class="btn-tool-icon" id="btn-tool-file" onclick="triggerFileUploadDirect()" title="파일"><i class="fa-regular fa-folder-open"></i><span>파일</span></button>
                             <button type="button" class="btn-tool-icon" id="btn-tool-link" title="링크"><i class="fa-solid fa-link"></i><span>링크</span></button>
                             <button type="button" class="btn-tool-icon" title="장소"><i class="fa-solid fa-location-dot"></i><span>장소</span></button>
                             <button type="button" class="btn-tool-icon" title="글감"><i class="fa-solid fa-magnifying-glass"></i><span>글감</span></button>
@@ -2204,6 +2727,7 @@
                             <button type="button" class="btn-tool-icon" title="소스코드"><i class="fa-solid fa-code"></i><span>소스코드</span></button>
                             <button type="button" class="btn-tool-icon" title="수식"><i class="fa-solid fa-square-root-variable"></i><span>수식</span></button>
                             <input type="file" id="write-photo-upload" accept="image/*" multiple style="display: none;" onchange="handlePhotoUploadDirect(this)">
+                            <input type="file" id="write-file-upload" multiple style="display: none;" onchange="handleFileUploadDirect(this)">
                         </div>
 
                         <!-- Smart Editor Formatting Sub-toolbar (본문, 기본서체, 15, B, I, U, 취소선, 정렬 등) -->
@@ -2239,6 +2763,14 @@
                             <button type="button" class="btn-fmt" title="줄간격"><i class="fa-solid fa-arrows-up-down"></i></button>
                             <button type="button" class="btn-fmt" title="특수문자"><i class="fa-regular fa-snowflake"></i></button>
                             <button type="button" class="btn-fmt" title="링크삽입"><i class="fa-solid fa-link"></i></button>
+                        </div>
+
+                        <!-- Write Attachments List Box -->
+                        <div class="write-attachments-box" id="write-attachments-box" style="display: none;">
+                            <div class="write-attachments-header">
+                                <span><i class="fa-solid fa-paperclip"></i> 첨부파일 <strong id="write-attach-count">0</strong>개</span>
+                            </div>
+                            <div class="write-attachments-list" id="write-attachments-list"></div>
                         </div>
 
                         <!-- Content Editable / Textarea Body -->

@@ -1861,8 +1861,9 @@ input:checked + .fake-toggle::after {
 .comment-item {
     display: flex;
     gap: 10px;
-    padding: 10px 0;
+    padding: 12px 0;
     border-bottom: 1px solid #f1f3f5;
+    position: relative;
 }
 
 .comment-avatar {
@@ -1888,6 +1889,13 @@ input:checked + .fake-toggle::after {
 .comment-header-line {
     display: flex;
     align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.comment-header-left {
+    display: flex;
+    align-items: center;
     gap: 8px;
 }
 
@@ -1907,6 +1915,116 @@ input:checked + .fake-toggle::after {
     color: #333;
     line-height: 1.5;
     white-space: pre-line;
+}
+
+/* Comment More Menu (⋯ -> 수정 / 삭제) */
+.comment-more-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+
+.btn-comment-more {
+    background: none;
+    border: none;
+    color: #999;
+    font-size: 14px;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+    line-height: 1;
+}
+
+.btn-comment-more:hover {
+    color: #444;
+    background: #f1f3f5;
+}
+
+.comment-more-dropdown {
+    display: none;
+    position: absolute;
+    top: 24px;
+    right: 0;
+    width: 100px;
+    background: #ffffff;
+    border: 1px solid #eceef0;
+    border-radius: 8px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+    padding: 6px 0;
+    z-index: 50;
+    flex-direction: column;
+}
+
+.comment-more-dropdown.open {
+    display: flex;
+}
+
+.btn-comment-menu-item {
+    background: none;
+    border: none;
+    width: 100%;
+    text-align: center;
+    padding: 9px 12px;
+    font-size: 13px;
+    color: #222;
+    cursor: pointer;
+    transition: background 0.12s;
+}
+
+.btn-comment-menu-item:hover {
+    background: #f5f6f8;
+    text-decoration: underline;
+}
+
+/* Inline Comment Edit Box */
+.comment-edit-box {
+    margin-top: 6px;
+    border: 1px solid #03c75a;
+    border-radius: 6px;
+    padding: 10px 12px;
+    background: #ffffff;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.comment-edit-textarea {
+    width: 100%;
+    border: none;
+    outline: none;
+    font-size: 13px;
+    line-height: 1.5;
+    color: #222;
+    resize: none;
+    font-family: inherit;
+}
+
+.comment-edit-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.btn-comment-edit-cancel {
+    background: #f1f3f5;
+    border: 1px solid #dee2e6;
+    color: #555;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-comment-edit-save {
+    background: #03c75a;
+    border: 1px solid #03c75a;
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
 }
 
 /* Comment Write Box (Matching Screenshot) */
@@ -2770,6 +2888,129 @@ input:checked + .fake-toggle::after {
 .btn-bottom-tool.btn-tool-top {
     color: #666666;
 }
+
+/* ----------------------------------------------------
+   Cafe File Attachments (Editor & Post Detail)
+   ---------------------------------------------------- */
+.write-attachments-box,
+.detail-attachments-box {
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px 16px;
+    margin-bottom: 18px;
+}
+
+.write-attachments-header,
+.detail-attachments-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 13px;
+    font-weight: 700;
+    color: #334155;
+    margin-bottom: 10px;
+}
+
+.write-attachments-list,
+.detail-attachments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.cafe-attach-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    padding: 8px 12px;
+    gap: 10px;
+}
+
+.cafe-attach-left {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+    flex: 1;
+}
+
+.cafe-attach-icon {
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: #e8f9ef;
+    color: #03c75a;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 13px;
+    flex-shrink: 0;
+}
+
+.cafe-attach-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1e293b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.cafe-attach-size {
+    font-size: 12px;
+    color: #64748b;
+    flex-shrink: 0;
+}
+
+.btn-cafe-attach-remove {
+    background: none;
+    border: 1px solid #cbd5e1;
+    color: #64748b;
+    font-size: 11.5px;
+    font-weight: 600;
+    padding: 4px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.btn-cafe-attach-remove:hover {
+    background: #fff5f5;
+    color: #e03131;
+    border-color: #ffa8a8;
+}
+
+.btn-cafe-attach-download {
+    background: #ffffff;
+    border: 1px solid #cbd5e1;
+    color: #1e293b;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 5px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    flex-shrink: 0;
+    transition: all 0.15s;
+}
+
+.btn-cafe-attach-download:hover {
+    background: #03c75a;
+    color: #ffffff;
+    border-color: #03c75a;
+}
+
+.badge-post-file-clip {
+    color: #64748b;
+    font-size: 12px;
+    margin-left: 4px;
+}
+
 
 
 
