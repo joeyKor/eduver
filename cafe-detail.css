@@ -320,9 +320,14 @@ button {
    ---------------------------------------------------- */
 .cafe-layout-grid {
     display: grid;
-    grid-template-columns: 210px 1fr;
+    grid-template-columns: 210px minmax(0, 1fr);
     gap: 24px;
     align-items: start;
+}
+
+.cafe-main-content {
+    min-width: 0;
+    max-width: 100%;
 }
 
 /* --- Left Sidebar --- */
@@ -1233,6 +1238,8 @@ input:checked + .fake-toggle::after {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .post-detail-topbar {
@@ -1277,6 +1284,9 @@ input:checked + .fake-toggle::after {
     padding: 24px 28px;
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
 }
 
 .post-category-tag {
@@ -1308,6 +1318,8 @@ input:checked + .fake-toggle::after {
     font-weight: 800;
     color: #111;
     letter-spacing: -0.5px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 /* Post Meta Header */
@@ -1441,11 +1453,21 @@ input:checked + .fake-toggle::after {
     min-height: 180px;
     white-space: pre-line;
     margin-bottom: 40px;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    max-width: 100%;
+}
+
+.post-content-body img {
+    max-width: 100%;
+    height: auto;
 }
 
 .post-content-body a {
     color: #03c75a;
     text-decoration: underline;
+    overflow-wrap: anywhere;
+    word-break: break-all;
 }
 
 /* Author Bottom Bar */
@@ -1595,9 +1617,14 @@ input:checked + .fake-toggle::after {
 /* Write Layout Grid (Editor Left: 1fr, Settings Right: 240px) */
 .write-layout-grid {
     display: grid;
-    grid-template-columns: 1fr 240px;
+    grid-template-columns: minmax(0, 1fr) 240px;
     gap: 20px;
     align-items: start;
+}
+
+.write-editor-column {
+    min-width: 0;
+    max-width: 100%;
 }
 
 .write-editor-card {
@@ -1606,6 +1633,8 @@ input:checked + .fake-toggle::after {
     border-radius: 4px;
     display: flex;
     flex-direction: column;
+    min-width: 0;
+    max-width: 100%;
 }
 
 .write-category-row {
@@ -1739,6 +1768,10 @@ input:checked + .fake-toggle::after {
     color: #222;
     outline: none;
     overflow-y: auto;
+    overflow-x: hidden;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    max-width: 100%;
 }
 
 .editor-content-area[data-placeholder]:empty:before {
@@ -1915,6 +1948,8 @@ input:checked + .fake-toggle::after {
     color: #333;
     line-height: 1.5;
     white-space: pre-line;
+    overflow-wrap: anywhere;
+    word-break: break-word;
 }
 
 /* Comment More Menu (⋯ -> 수정 / 삭제) */
