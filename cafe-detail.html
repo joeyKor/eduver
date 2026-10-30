@@ -394,10 +394,20 @@
             var titleEl = document.getElementById("full-write-title");
             var contentEl = document.getElementById("full-write-content");
             var boardEl = document.getElementById("full-write-board");
+            var prefixEl = document.getElementById("full-write-prefix");
             var noticeEl = document.getElementById("check-write-notice");
 
+            var editTitle = post.title || "";
+            var editPrefix = "";
+            var prefixMatch = editTitle.match(/^\[(잡담|질문|정보|후기)\]\s*(.*)$/);
+            if (prefixMatch) {
+                editPrefix = prefixMatch[1];
+                editTitle = prefixMatch[2];
+            }
+
+            if (prefixEl) prefixEl.value = editPrefix;
             if (titleEl) {
-                titleEl.value = post.title || "";
+                titleEl.value = editTitle;
                 titleEl.focus();
             }
             var parsedBody = typeof window.parseCafePostAttachments === "function"
@@ -489,12 +499,24 @@
                 var detailAuthorActions = document.getElementById("detail-author-actions");
                 var btnDetailBottomEdit = document.getElementById("btn-detail-bottom-edit");
                 var btnDetailBottomDelete = document.getElementById("btn-detail-bottom-delete");
+                var btnPostEdit = document.getElementById("btn-post-edit");
+                var btnPostDelete = document.getElementById("btn-post-delete");
 
                 if (detailAuthorActions) {
                     detailAuthorActions.style.display = (isMyPost && isMember) ? "flex" : "none";
                 }
                 if (postTopbarLeft) {
                     postTopbarLeft.style.display = (isMyPost && isMember) ? "flex" : "none";
+                }
+                if (btnPostEdit) {
+                    btnPostEdit.onclick = function() {
+                        window.editCurrentPostDirect(post);
+                    };
+                }
+                if (btnPostDelete) {
+                    btnPostDelete.onclick = function() {
+                        window.deleteCurrentPostDirect(post.id);
+                    };
                 }
                 if (btnDetailBottomEdit) {
                     btnDetailBottomEdit.style.display = (isMyPost && isMember) ? "inline-flex" : "none";
@@ -1128,6 +1150,17 @@
                 var editedId = window.currentEditingPostId;
                 window.currentEditingPostId = null;
                 var updatedAttachments = null;
+
+                if (!Array.isArray(window.currentCafeRecord.posts)) window.currentCafeRecord.posts = [];
+                var pIdx = window.currentCafeRecord.posts.findIndex(function(p) { return p.id === editedId; });
+                var existingPost = pIdx !== -1 ? window.currentCafeRecord.posts[pIdx] : null;
+
+                if (filesToUpload.length === 0 && existingPost && existingPost.content) {
+                    var existingMetaMatch = existingPost.content.match(/<!-- EDUVER_ATTACH_META_START --><script type="application\/json" class="eduver-attach-meta">[\s\S]*?<\/script><!-- EDUVER_ATTACH_META_END -->/);
+                    if (existingMetaMatch) {
+                        finalContent += existingMetaMatch[0];
+                    }
+                }
 
                 if (String(editedId).indexOf("p_") !== 0) {
                     try {
@@ -2336,7 +2369,7 @@
                     <!-- Top Action Bar (수정, 삭제 | 목록) -->
                     <div class="post-detail-topbar">
                         <div class="topbar-left">
-                            <button type="button" class="btn-detail-action" id="btn-post-edit">수정</button>
+                            <button type="button" class="btn-detail-action" id="btn-post-edit" onclick="if(window.editCurrentPost)window.editCurrentPost();else if(window.editCurrentPostDirect)window.editCurrentPostDirect();">수정</button>
                             <button type="button" class="btn-detail-action" id="btn-post-delete">삭제</button>
                         </div>
                         <div class="topbar-right">
@@ -2414,9 +2447,7 @@
                             </div>
                         </div>
 
-                        <!-- -----------------------------------------------
-                             Comment Section (댓글 목록 및 댓글 작성 영역)
-                             ----------------------------------------------- -->
+                        <!-- Comment Section (댓글 목록 및 댓글 작성 영역) -->
                         <div class="comment-section-wrap" id="comment-section-wrap">
                             <!-- Cleanbot Badge Header -->
                             <div class="cleanbot-header">

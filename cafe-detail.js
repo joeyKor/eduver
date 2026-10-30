@@ -729,8 +729,10 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     function editCurrentPost() {
-        if (!currentViewingPostId) return;
-        const post = (currentCafe.posts || []).find(p => p.id === currentViewingPostId);
+        const targetPostId = currentViewingPostId || window.currentViewingPostId;
+        if (!targetPostId) return;
+        const post = (currentCafe.posts || []).find(p => p.id === targetPostId)
+            || (window.currentCafeRecord && Array.isArray(window.currentCafeRecord.posts) ? window.currentCafeRecord.posts.find(p => p.id === targetPostId) : null);
         if (!post) return;
 
         currentEditingPostId = post.id;
@@ -757,10 +759,20 @@ document.addEventListener("DOMContentLoaded", () => {
         const titleEl = document.getElementById("full-write-title");
         const contentEl = document.getElementById("full-write-content");
         const boardEl = document.getElementById("full-write-board");
+        const prefixEl = document.getElementById("full-write-prefix");
         const noticeEl = document.getElementById("check-write-notice");
 
+        let editTitle = post.title || "";
+        let editPrefix = "";
+        const prefixMatch = editTitle.match(/^\[(잡담|질문|정보|후기)\]\s*(.*)$/);
+        if (prefixMatch) {
+            editPrefix = prefixMatch[1];
+            editTitle = prefixMatch[2];
+        }
+
+        if (prefixEl) prefixEl.value = editPrefix;
         if (titleEl) {
-            titleEl.value = post.title || "";
+            titleEl.value = editTitle;
             titleEl.focus();
         }
         const parsedEditContent = typeof window.parseCafePostAttachments === "function"
@@ -775,6 +787,7 @@ document.addEventListener("DOMContentLoaded", () => {
 
     window.openCafeWriteView = showWriteView;
     window.editCurrentPost = editCurrentPost;
+    window.editCurrentPostDirect = editCurrentPost;
 
     function showJoinView() {
         const isAuthCheck = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
@@ -1123,6 +1136,7 @@ document.addEventListener("DOMContentLoaded", () => {
     }
 
     // Single Delete & Edit from Post Detail View
+    const btnPostEdit = document.getElementById("btn-post-edit");
     const btnPostDelete = document.getElementById("btn-post-delete");
     const btnDetailBottomEdit = document.getElementById("btn-detail-bottom-edit");
     const btnDetailBottomDelete = document.getElementById("btn-detail-bottom-delete");
@@ -1145,6 +1159,7 @@ document.addEventListener("DOMContentLoaded", () => {
         }
     }
 
+    if (btnPostEdit) btnPostEdit.addEventListener("click", editCurrentPost);
     if (btnPostDelete) btnPostDelete.addEventListener("click", deleteCurrentPost);
     if (btnDetailBottomEdit) btnDetailBottomEdit.addEventListener("click", editCurrentPost);
     if (btnDetailBottomDelete) btnDetailBottomDelete.addEventListener("click", deleteCurrentPost);
@@ -1304,6 +1319,15 @@ document.addEventListener("DOMContentLoaded", () => {
             window.currentEditingPostId = null;
             let updatedAttachments = null;
 
+            const postIdx = (currentCafe.posts || []).findIndex(p => p.id === editedId);
+            const existingPost = postIdx !== -1 ? currentCafe.posts[postIdx] : null;
+            if (filesToUpload.length === 0 && existingPost && existingPost.content) {
+                const existingMetaMatch = existingPost.content.match(/<!-- EDUVER_ATTACH_META_START --><script type="application\/json" class="eduver-attach-meta">[\s\S]*?<\/script><!-- EDUVER_ATTACH_META_END -->/);
+                if (existingMetaMatch) {
+                    finalContent += existingMetaMatch[0];
+                }
+            }
+
             if (!String(editedId).startsWith("p_")) {
                 try {
                     let patchRes;
@@ -1346,7 +1370,6 @@ document.addEventListener("DOMContentLoaded", () => {
                 window.renderWriteAttachmentsDirect();
             }
 
-            const postIdx = (currentCafe.posts || []).findIndex(p => p.id === editedId);
             if (postIdx !== -1) {
                 currentCafe.posts[postIdx].title = title;
                 currentCafe.posts[postIdx].board = board;
