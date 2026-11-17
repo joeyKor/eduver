@@ -527,7 +527,8 @@ document.addEventListener("DOMContentLoaded", () => {
             const card = document.createElement("div");
             card.className = "cafe-group-card";
 
-            const postsHtml = (cafe.posts || []).map(p => {
+            const previewPosts = (cafe.posts || []).slice(0, 3);
+            const postsHtml = previewPosts.map(p => {
                 const commList = Array.isArray(p.comments) ? p.comments : [];
                 const commCount = commList.length || (parseInt(p.comments, 10) || parseInt(p.commentsCount, 10) || 0);
                 const commBadge = commCount > 0 ? `<span class="badge-post-comment-count">[${commCount}]</span>` : '';
