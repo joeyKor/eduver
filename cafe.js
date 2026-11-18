@@ -288,6 +288,10 @@ document.addEventListener("DOMContentLoaded", () => {
                 if (data.items && data.items.length > 0) {
                     const pbCafes = data.items.map(item => {
                         const itemPosts = allPostsByCafe[item.id] || (item.posts ? (typeof item.posts === 'string' ? JSON.parse(item.posts) : item.posts) : []);
+                        let itemBoards = item.board || item.boards || [];
+                        if (typeof itemBoards === 'string') {
+                            try { itemBoards = JSON.parse(itemBoards); } catch (e) { itemBoards = [itemBoards]; }
+                        }
                         return {
                             id: item.id,
                             name: item.name,
@@ -295,6 +299,8 @@ document.addEventListener("DOMContentLoaded", () => {
                             ranking: item.ranking || "신규 개설",
                             members: item.members || "1",
                             joinedMembers: item.joinedMembers ? (typeof item.joinedMembers === 'string' ? JSON.parse(item.joinedMembers) : item.joinedMembers) : [],
+                            boards: Array.isArray(itemBoards) ? itemBoards : [],
+                            board: Array.isArray(itemBoards) ? itemBoards : [],
                             newPostsToday: itemPosts.length || item.newPostsToday || 1,
                             icon: item.icon || "default-avatar.svg",
                             isFavorite: item.isFavorite || false,

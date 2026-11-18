@@ -127,6 +127,16 @@
                             });
                             cafeObj.joinedMembers = localMembers;
                         }
+                        if (!cafeObj.boards && !cafeObj.board) {
+                            var remoteBoards = remote.board || remote.boards;
+                            if (typeof remoteBoards === "string") {
+                                try { remoteBoards = JSON.parse(remoteBoards); } catch (e) {}
+                            }
+                            if (Array.isArray(remoteBoards) && remoteBoards.length > 0) {
+                                cafeObj.boards = remoteBoards;
+                                cafeObj.board = remoteBoards;
+                            }
+                        }
                     }
                 } catch (e) {
                     console.warn("Fetch before merge warning:", e);
@@ -152,15 +162,34 @@
             // Patch back to PocketBase (only lightweight cafe metadata, posts are in cafe_posts)
             if (pbId && String(pbId).indexOf("cafe_") !== 0) {
                 try {
+                    var boardsToSave = Array.isArray(cafeObj.boards) && cafeObj.boards.length > 0
+                        ? cafeObj.boards
+                        : (Array.isArray(cafeObj.board) && cafeObj.board.length > 0 ? cafeObj.board : undefined);
+                    var patchPayload = {
+                        newPostsToday: cafeObj.newPostsToday || (cafeObj.posts ? cafeObj.posts.length : 1),
+                        members: String(cafeObj.members || "1"),
+                        joinedMembers: cafeObj.joinedMembers || [],
+                        manager: cafeObj.manager
+                    };
+                    if (cafeObj.name) {
+                        patchPayload.name = cafeObj.name;
+                    }
+                    if (typeof cafeObj.icon === "string" && cafeObj.icon) {
+                        patchPayload.icon = cafeObj.icon;
+                    }
+                    if (typeof cafeObj.description === "string") {
+                        patchPayload.description = cafeObj.description;
+                    } else if (typeof cafeObj.desc === "string") {
+                        patchPayload.description = cafeObj.desc;
+                    }
+                    if (boardsToSave) {
+                        patchPayload.board = boardsToSave;
+                        patchPayload.boards = boardsToSave;
+                    }
                     await fetch(pbUrl + "/api/collections/cafes/records/" + pbId, {
                         method: "PATCH",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            newPostsToday: cafeObj.newPostsToday || (cafeObj.posts ? cafeObj.posts.length : 1),
-                            members: String(cafeObj.members || "1"),
-                            joinedMembers: cafeObj.joinedMembers || [],
-                            manager: cafeObj.manager
-                        })
+                        body: JSON.stringify(patchPayload)
                     });
                 } catch (e) {
                     console.warn("PB patch error:", e);
@@ -324,6 +353,10 @@
                 return;
             }
 
+            if (typeof window.renderCafeWriteBoardsSelectDirect === "function") {
+                window.renderCafeWriteBoardsSelectDirect();
+            }
+
             window.currentEditingPostId = null;
             window.attachedCafeFiles = [];
             if (typeof window.renderWriteAttachmentsDirect === "function") {
@@ -362,6 +395,10 @@
                 post = posts.find(function(p) { return p.id === window.currentViewingPostId; });
             }
             if (!post) return;
+
+            if (typeof window.renderCafeWriteBoardsSelectDirect === "function") {
+                window.renderCafeWriteBoardsSelectDirect(post.board);
+            }
 
             window.currentEditingPostId = post.id;
             window.attachedCafeFiles = [];
@@ -1347,13 +1384,217 @@
         }
         window.handleFullSubmitDirect = handleFullSubmitDirect;
 
-        function selectBoardDirect(boardType) {
+        function normalizeBoardEntryDirect(item, idx) {
+            if (typeof item === "string") {
+                return {
+                    id: "b_str_" + idx + "_" + item,
+                    name: item.trim(),
+                    type: "board",
+                    indent: false
+                };
+            }
+            if (item && typeof item === "object") {
+                var t = item.type || "board";
+                var n = (item.name || item.title || (t === "divider" ? "구분선" : "통합게시판")).trim();
+                return {
+                    id: item.id || ("b_obj_" + idx + "_" + Date.now()),
+                    name: n,
+                    type: t,
+                    indent: Boolean(item.indent),
+                    desc: item.desc || "",
+                    url: item.url || ""
+                };
+            }
+            return null;
+        }
+        window.normalizeBoardEntryDirect = normalizeBoardEntryDirect;
+
+        function getCafeMenuObjectsDirect(cafeObj) {
+            var cafe = cafeObj || window.currentCafeRecord || {};
+            var raw = cafe.boards || cafe.board;
+            if (typeof raw === "string") {
+                try { raw = JSON.parse(raw); } catch (e) { raw = [raw]; }
+            }
+            var list = [];
+            if (Array.isArray(raw) && raw.length > 0) {
+                raw.forEach(function(item, idx) {
+                    var norm = normalizeBoardEntryDirect(item, idx);
+                    if (norm && (norm.type === "divider" || norm.name)) {
+                        list.push(norm);
+                    }
+                });
+            }
+            if (list.length === 0) {
+                list = [
+                    { id: "b_default_free", name: "자유게시판", type: "board", indent: false }
+                ];
+            }
+            return list;
+        }
+        window.getCafeMenuObjectsDirect = getCafeMenuObjectsDirect;
+
+        function getCafeBoardsDirect(cafeObj) {
+            var menuObjs = getCafeMenuObjectsDirect(cafeObj);
+            var names = [];
+            menuObjs.forEach(function(m) {
+                if (m.type !== "divider" && m.type !== "group" && m.type !== "link" && m.name) {
+                    if (names.indexOf(m.name) === -1) {
+                        names.push(m.name);
+                    }
+                }
+            });
+            if (names.length === 0) {
+                names = ["자유게시판"];
+            }
+            return names;
+        }
+        window.getCafeBoardsDirect = getCafeBoardsDirect;
+
+        function renderCafeWriteBoardsSelectDirect(selectedBoardName) {
+            var boardSelect = document.getElementById("full-write-board");
+            if (!boardSelect) return;
+            var boards = getCafeBoardsDirect();
+            var activeBoard = selectedBoardName || window.currentSelectedBoardType;
+            if (activeBoard === "all" || activeBoard === "hot") activeBoard = "";
+            if (activeBoard === "free") activeBoard = boards[0] || "자유게시판";
+            if (activeBoard && boards.indexOf(activeBoard) === -1) {
+                boards = boards.concat([activeBoard]);
+            }
+            boardSelect.innerHTML = "";
+            boards.forEach(function(bName, idx) {
+                var opt = document.createElement("option");
+                opt.value = bName;
+                opt.textContent = bName;
+                if ((activeBoard && bName === activeBoard) || (!activeBoard && idx === 0)) {
+                    opt.selected = true;
+                }
+                boardSelect.appendChild(opt);
+            });
+        }
+        window.renderCafeWriteBoardsSelectDirect = renderCafeWriteBoardsSelectDirect;
+
+        function getMenuIconHtmlDirect(type) {
+            if (type === "memo") return '<i class="fa-regular fa-note-sticky"></i>';
+            if (type === "staff") return '<i class="fa-regular fa-id-badge"></i>';
+            if (type === "product") return '<i class="fa-solid fa-gift"></i>';
+            if (type === "attendance") return '<i class="fa-regular fa-calendar-check"></i>';
+            if (type === "calendar") return '<i class="fa-regular fa-calendar"></i>';
+            if (type === "group") return '<i class="fa-regular fa-folder-open"></i>';
+            if (type === "link") return '<i class="fa-solid fa-up-right-from-square"></i>';
+            return '<i class="fa-regular fa-file-lines"></i>';
+        }
+
+        function renderCafeSidebarBoardsDirect() {
+            var container = document.getElementById("sidebar-custom-board-list");
+            if (!container) return;
+            var menuObjs = getCafeMenuObjectsDirect();
+            var activeType = window.currentSelectedBoardType || "all";
+            container.innerHTML = "";
+
+            menuObjs.forEach(function(item) {
+                if (item.type === "divider") {
+                    var divLi = document.createElement("li");
+                    divLi.className = "menu-divider";
+                    divLi.style.margin = "6px 0";
+                    container.appendChild(divLi);
+                    return;
+                }
+                if (item.type === "group") {
+                    var grpLi = document.createElement("li");
+                    grpLi.className = "sidebar-group-title-item";
+                    grpLi.style.cssText = "padding: 8px 6px 4px 6px; font-size: 11.5px; font-weight: 700; color: #555; display: flex; align-items: center; gap: 6px;";
+                    var safeGName = (item.name || "그룹 제목").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    grpLi.innerHTML = '<i class="fa-regular fa-folder-open" style="color:#888;"></i> <span>' + safeGName + '</span>';
+                    container.appendChild(grpLi);
+                    return;
+                }
+                var bName = item.name || "자유게시판";
+                var li = document.createElement("li");
+                var isActive = (activeType === bName) || (activeType === "free" && bName === "자유게시판");
+                li.className = "board-item" + (isActive ? " active" : "");
+                li.setAttribute("data-board", bName);
+                li.style.cursor = "pointer";
+                if (item.indent) {
+                    li.style.paddingLeft = "18px";
+                }
+                li.onclick = function() {
+                    if (item.type === "link" && item.url) {
+                        window.open(item.url, "_blank");
+                        return;
+                    }
+                    selectBoardDirect(bName);
+                };
+                var safeName = bName.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                var indentPrefix = item.indent ? '<span style="color:#aaa; font-size:11px; margin-right:2px;">ㄴ</span>' : '';
+                li.innerHTML =
+                    '<span class="board-name">' + indentPrefix + getMenuIconHtmlDirect(item.type) + ' ' + safeName + '</span>' +
+                    '<span class="new-dot">N</span>';
+                container.appendChild(li);
+            });
+
+            renderCafeWriteBoardsSelectDirect();
+        }
+        window.renderCafeSidebarBoardsDirect = renderCafeSidebarBoardsDirect;
+
+        window.currentBoardPage = 1;
+        window.currentBoardPageSize = 15;
+
+        function changeBoardPageDirect(pageNum) {
+            window.currentBoardPage = pageNum || 1;
+            if (typeof window.setBoardPageInDetailJs === "function") {
+                window.setBoardPageInDetailJs(window.currentBoardPage, window.currentBoardPageSize);
+                return;
+            }
+            selectBoardDirect(window.currentSelectedBoardType || "all", true);
+        }
+        window.changeBoardPageDirect = changeBoardPageDirect;
+
+        function changeBoardPageSizeDirect(sizeVal) {
+            window.currentBoardPageSize = parseInt(sizeVal, 10) || 15;
+            window.currentBoardPage = 1;
+            if (typeof window.setBoardPageInDetailJs === "function") {
+                window.setBoardPageInDetailJs(1, window.currentBoardPageSize);
+                return;
+            }
+            selectBoardDirect(window.currentSelectedBoardType || "all", true);
+        }
+        window.changeBoardPageSizeDirect = changeBoardPageSizeDirect;
+
+        function renderBoardPaginationRowDirect(totalItems, pageSize, currentPage) {
+            var pagRow = document.querySelector(".board-pagination-row");
+            if (!pagRow) return;
+            var totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+            pagRow.innerHTML = "";
+            for (var p = 1; p <= totalPages; p++) {
+                (function(pageNum) {
+                    var span = document.createElement("span");
+                    span.className = "page-num" + (pageNum === currentPage ? " active" : "");
+                    span.textContent = pageNum;
+                    span.style.cursor = "pointer";
+                    span.onclick = function() {
+                        changeBoardPageDirect(pageNum);
+                    };
+                    pagRow.appendChild(span);
+                })(p);
+            }
+        }
+        window.renderBoardPaginationRowDirect = renderBoardPaginationRowDirect;
+
+        function selectBoardDirect(boardType, keepPage) {
+            if (!keepPage && window.currentSelectedBoardType !== (boardType || "all")) {
+                window.currentBoardPage = 1;
+            }
+            window.currentSelectedBoardType = boardType || "all";
+            if (typeof window.setCurrentActiveBoardFromDirect === "function") {
+                window.setCurrentActiveBoardFromDirect(window.currentSelectedBoardType, window.currentBoardPage);
+            }
             var grid = document.querySelector(".cafe-layout-grid");
             var bList = document.getElementById("board-list-container");
             var pDetail = document.getElementById("post-detail-container");
             var wView = document.getElementById("cafe-write-full-view");
             var jView = document.getElementById("cafe-join-view");
             var mView = document.getElementById("cafe-member-list-view");
+            var menuView = document.getElementById("cafe-menu-manage-view");
             var hero = document.getElementById("welcome-hero-card");
             var titleEl = document.getElementById("board-main-title");
             var tbody = document.getElementById("cafe-post-tbody");
@@ -1364,11 +1605,17 @@
             if (wView) wView.style.display = "none";
             if (jView) jView.style.display = "none";
             if (mView) mView.style.display = "none";
+            if (menuView) menuView.style.display = "none";
+
+            var boards = getCafeBoardsDirect();
+            var defaultBoardName = boards[0] || "자유게시판";
+            var normalizedBoard = (boardType === "free") ? defaultBoardName : boardType;
 
             // Update active styling in sidebar
             var items = document.querySelectorAll(".sidebar-menu-card .board-item");
             items.forEach(function(item) {
-                if (item.getAttribute("data-board") === boardType) {
+                var itemBoard = item.getAttribute("data-board");
+                if (itemBoard === boardType || itemBoard === normalizedBoard) {
                     item.classList.add("active");
                 } else {
                     item.classList.remove("active");
@@ -1379,28 +1626,51 @@
             var rawPosts = cafe ? cafe.posts : [];
             var posts = typeof rawPosts === 'string' ? JSON.parse(rawPosts) : (Array.isArray(rawPosts) ? rawPosts : []);
 
-            if (boardType === "free") {
-                if (titleEl) titleEl.textContent = "자유게시판";
-                if (hero) hero.style.display = "none";
-                posts = posts.filter(function(p) { return !p.board || p.board === "자유게시판"; });
+            var hideNoticeChk = document.getElementById("hide-notice-check");
+            if (hideNoticeChk && hideNoticeChk.checked) {
+                posts = posts.filter(function(p) { return !p.isNotice; });
+            }
+
+            if (boardType === "all" || !boardType) {
+                if (titleEl) titleEl.textContent = "전체글보기";
+                if (hero) hero.style.display = "block";
             } else if (boardType === "hot") {
                 if (titleEl) titleEl.textContent = "인기글";
                 if (hero) hero.style.display = "none";
-                posts = posts.filter(function(p) { return (p.views || 0) > 10; });
+                posts = posts.filter(function(p) { return (p.views || 0) > 10 || (Array.isArray(p.comments) && p.comments.length > 0); });
             } else {
-                if (titleEl) titleEl.textContent = "전체글보기";
-                if (hero) hero.style.display = "block";
+                if (titleEl) titleEl.textContent = normalizedBoard;
+                if (hero) hero.style.display = "none";
+                posts = posts.filter(function(p) {
+                    if (normalizedBoard === defaultBoardName) {
+                        return !p.board || p.board === normalizedBoard || p.board === "자유게시판";
+                    }
+                    return p.board === normalizedBoard;
+                });
             }
+
+            var pageSizeEl = document.getElementById("select-page-size");
+            var pageSize = pageSizeEl ? (parseInt(pageSizeEl.value, 10) || 15) : (window.currentBoardPageSize || 15);
+            window.currentBoardPageSize = pageSize;
+            var totalPostsCount = posts.length;
+            var totalPages = Math.max(1, Math.ceil(totalPostsCount / pageSize));
+            if ((window.currentBoardPage || 1) > totalPages) {
+                window.currentBoardPage = totalPages;
+            }
+            var curPage = window.currentBoardPage || 1;
+            var startIndex = (curPage - 1) * pageSize;
+            var pagedPosts = posts.slice(startIndex, startIndex + pageSize);
 
             if (tbody) {
                 tbody.innerHTML = '';
-                if (posts.length === 0) {
+                if (pagedPosts.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="7" style="text-align: center; padding: 40px; color: #888;">등록된 게시글이 없습니다.</td></tr>';
                 } else {
-                    posts.forEach(function(post, index) {
+                    pagedPosts.forEach(function(post, index) {
                         var tr = document.createElement('tr');
                         if (post.isNotice) tr.className = 'notice-tr';
-                        var numOrBadge = post.isNotice ? '<span class="badge-table-notice">공지</span>' : (posts.length - index);
+                        var globalIdx = startIndex + index;
+                        var numOrBadge = post.isNotice ? '<span class="badge-table-notice">공지</span>' : (totalPostsCount - globalIdx);
                         var pTime = (post.time && typeof post.time === 'string') ? (post.time.indexOf(' ') > -1 ? post.time.split(' ')[0] : post.time) : '2026.08.23';
                         var commCount = Array.isArray(post.comments) ? post.comments.length : (parseInt(post.commentsCount, 10) || 0);
                         var commBadge = commCount > 0 ? '<span class="badge-post-comment-count">[' + commCount + ']</span>' : '';
@@ -1418,6 +1688,29 @@
                     });
                 }
             }
+
+            renderBoardPaginationRowDirect(totalPostsCount, pageSize, curPage);
+
+            // Re-bind select-all checkboxes
+            var topChkAll = document.getElementById("check-all-posts");
+            var botChkAll = document.getElementById("bottom-check-all");
+            if (topChkAll) topChkAll.checked = false;
+            if (botChkAll) botChkAll.checked = false;
+            var itemChks = document.querySelectorAll(".post-check-item");
+            var toggleAllDirect = function(checked) {
+                itemChks.forEach(function(c) { c.checked = checked; });
+                if (topChkAll) topChkAll.checked = checked;
+                if (botChkAll) botChkAll.checked = checked;
+            };
+            if (topChkAll) topChkAll.onchange = function(e) { toggleAllDirect(e.target.checked); };
+            if (botChkAll) botChkAll.onchange = function(e) { toggleAllDirect(e.target.checked); };
+            itemChks.forEach(function(c) {
+                c.onchange = function() {
+                    var allChecked = itemChks.length > 0 && Array.from(itemChks).every(function(i) { return i.checked; });
+                    if (topChkAll) topChkAll.checked = allChecked;
+                    if (botChkAll) botChkAll.checked = allChecked;
+                };
+            });
 
             window.scrollTo({ top: 120, behavior: 'smooth' });
         }
@@ -1777,6 +2070,768 @@
             selectBoardDirect("all");
         }
         window.confirmCafeSecede = confirmCafeSecede;
+
+        // ==========================================
+        // Cafe Menu Management Full-Page View (메뉴 관리)
+        // ==========================================
+        window.tempEditingBoards = [];
+        window.tempRenamedBoardsMap = {};
+        window.selectedMenuIdx = -1;
+        window.selectedPaletteType = "board";
+        window.selectedPaletteLabel = "통합게시판";
+        window.draggedMenuIdx = -1;
+
+        var MENU_TYPE_LABELS = {
+            board: "통합게시판",
+            product: "상품등록게시판",
+            staff: "스탭게시판",
+            memo: "메모게시판",
+            attendance: "출석부",
+            cafebook: "카페북",
+            hot: "인기글",
+            tag: "카페태그",
+            calendar: "카페 캘린더",
+            bookshelf: "카페북 책꽂이",
+            knowledge: "카페지식활동",
+            group: "그룹 제목",
+            divider: "구분선",
+            link: "링크"
+        };
+
+        function isCurrentCafeManagerDirect() {
+            var cafe = window.currentCafeRecord || {};
+            var mgr = (cafe.manager || "").trim();
+            var curUser = (localStorage.getItem("naverLoggedInUser") || "").trim();
+            var curId = (localStorage.getItem("naverLoggedInUserId") || "").trim();
+            var curUsername = (localStorage.getItem("naverLoggedInUsername") || "").trim();
+            if (!mgr) return false;
+            if (curUser && (curUser === mgr || mgr.includes(curUser) || curUser.includes(mgr))) return true;
+            if (curId && (curId === mgr || mgr.includes(curId))) return true;
+            if (curUsername && (curUsername === mgr || mgr.includes(curUsername))) return true;
+            return false;
+        }
+        window.isCurrentCafeManagerDirect = isCurrentCafeManagerDirect;
+
+        function openCafeBoardManageModalDirect(e, initialTab) {
+            if (e && typeof e.preventDefault === "function") e.preventDefault();
+            var isAuth = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
+            if (!isAuth) {
+                alert("로그인이 필요한 서비스입니다.");
+                return;
+            }
+            if (!isCurrentCafeManagerDirect()) {
+                alert("카페 매니저만 카페를 관리할 수 있습니다.");
+                return;
+            }
+
+            // Deep copy current menu objects
+            var currentMenus = getCafeMenuObjectsDirect();
+            window.tempEditingBoards = currentMenus.map(function(m) {
+                return Object.assign({}, m, { origName: m.name });
+            });
+            window.tempRenamedBoardsMap = {};
+            window.selectedMenuIdx = -1;
+
+            // Load basic info fields
+            var cafe = window.currentCafeRecord || {};
+            window.tempBasicInfoIcon = "";
+            var addrEl = document.getElementById("basic-info-cafe-url");
+            var nameInp = document.getElementById("basic-info-cafe-name");
+            var iconImg = document.getElementById("basic-info-icon-preview");
+            var slug = cafe.urlSlug || (cafe.id ? String(cafe.id).replace("cafe_", "") : "cafe");
+            if (addrEl) addrEl.textContent = "https://cafe.eduver.com/" + slug;
+            if (nameInp) nameInp.value = cafe.name || "";
+            if (iconImg) {
+                var curAvatarEl = document.getElementById("cafe-profile-avatar");
+                var curIcon = (cafe.icon && cafe.icon !== "default-avatar.svg")
+                    ? cafe.icon
+                    : (curAvatarEl && curAvatarEl.src ? curAvatarEl.src : "default-avatar.svg");
+                iconImg.src = curIcon;
+            }
+
+            var grid = document.querySelector(".cafe-layout-grid");
+            var bList = document.getElementById("board-list-container");
+            var pDetail = document.getElementById("post-detail-container");
+            var jView = document.getElementById("cafe-join-view");
+            var wView = document.getElementById("cafe-write-full-view");
+            var mView = document.getElementById("cafe-member-list-view");
+            var menuView = document.getElementById("cafe-menu-manage-view");
+
+            if (grid) grid.style.display = "none";
+            if (bList) bList.style.display = "none";
+            if (pDetail) pDetail.style.display = "none";
+            if (jView) jView.style.display = "none";
+            if (wView) wView.style.display = "none";
+            if (mView) mView.style.display = "none";
+            if (menuView) {
+                menuView.style.display = "block";
+                menuView.style.visibility = "visible";
+            }
+
+            renderMenuManageTreeDirect();
+            renderMenuManageDetailDirect();
+            switchCafeAdminTabDirect(initialTab || "basic");
+            window.scrollTo({ top: 100, behavior: "smooth" });
+        }
+        window.openCafeBoardManageModal = openCafeBoardManageModalDirect;
+        window.openCafeBoardManageModalDirect = openCafeBoardManageModalDirect;
+
+        function switchCafeAdminTabDirect(tabName) {
+            window.currentCafeAdminTab = tabName || "basic";
+            var tabBasicBtn = document.getElementById("admin-tab-btn-basic");
+            var tabMenuBtn = document.getElementById("admin-tab-btn-menu");
+            var panelBasic = document.getElementById("admin-panel-basic-info");
+            var panelMenu = document.getElementById("admin-panel-menu-manage");
+
+            if (window.currentCafeAdminTab === "menu") {
+                if (tabBasicBtn) tabBasicBtn.classList.remove("active");
+                if (tabMenuBtn) tabMenuBtn.classList.add("active");
+                if (panelBasic) panelBasic.style.display = "none";
+                if (panelMenu) panelMenu.style.display = "block";
+            } else {
+                if (tabBasicBtn) tabBasicBtn.classList.add("active");
+                if (tabMenuBtn) tabMenuBtn.classList.remove("active");
+                if (panelBasic) panelBasic.style.display = "block";
+                if (panelMenu) panelMenu.style.display = "none";
+            }
+        }
+        window.switchCafeAdminTabDirect = switchCafeAdminTabDirect;
+
+        function triggerBasicInfoIconUploadDirect() {
+            var fileInp = document.getElementById("basic-info-icon-file");
+            if (fileInp) fileInp.click();
+        }
+        window.triggerBasicInfoIconUploadDirect = triggerBasicInfoIconUploadDirect;
+
+        async function handleBasicInfoIconChangeDirect(input) {
+            if (!input || !input.files || !input.files[0]) return;
+            var file = input.files[0];
+            input.value = "";
+            var compressed = await compressCafeImageFileDirect(file, 320, 0.82);
+            if (compressed) {
+                window.tempBasicInfoIcon = compressed;
+                var previewEl = document.getElementById("basic-info-icon-preview");
+                if (previewEl) previewEl.src = compressed;
+            }
+        }
+        window.handleBasicInfoIconChangeDirect = handleBasicInfoIconChangeDirect;
+
+        async function saveCafeBasicInfoDirect() {
+            var nameInp = document.getElementById("basic-info-cafe-name");
+            var newName = nameInp ? nameInp.value.trim() : "";
+            if (!newName) {
+                alert("PC 카페 이름을 입력해 주세요.");
+                if (nameInp) nameInp.focus();
+                return;
+            }
+
+            var cafe = window.currentCafeRecord || {};
+            var oldName = cafe.name || "";
+            var newIcon = window.tempBasicInfoIcon || cafe.icon || "";
+            var pbUrl = "https://pb.joyfamkr.synology.me";
+
+            cafe.name = newName;
+            if (newIcon) {
+                cafe.icon = newIcon;
+            }
+
+            // Update cafe_posts cafeName if cafe name changed
+            if (oldName && oldName !== newName && Array.isArray(cafe.posts)) {
+                var postJobs = [];
+                cafe.posts.forEach(function(p) {
+                    p.cafeName = newName;
+                    if (p.id && String(p.id).indexOf("p_") !== 0) {
+                        postJobs.push(p.id);
+                    }
+                });
+                if (postJobs.length > 0) {
+                    await Promise.all(postJobs.map(function(pid) {
+                        return fetch(pbUrl + "/api/collections/cafe_posts/records/" + pid, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ cafeName: newName })
+                        }).catch(function() {});
+                    }));
+                }
+            }
+
+            await fetchAndMergeCafeRecordDirect(cafe, function(c) {
+                c.name = newName;
+                if (newIcon) c.icon = newIcon;
+            });
+            window.currentCafeRecord = cafe;
+
+            // Update visible UI headers and avatar immediately
+            var titleMainEl = document.getElementById("cafe-title-main");
+            if (titleMainEl) titleMainEl.textContent = newName;
+            document.title = newName + " : EDUVER 카페 (에듀버)";
+
+            var profileAvatarEl = document.getElementById("cafe-profile-avatar");
+            if (profileAvatarEl && newIcon) {
+                profileAvatarEl.src = newIcon;
+            }
+
+            var now = new Date();
+            var dateStr = now.getFullYear() + "." + String(now.getMonth() + 1).padStart(2, "0") + "." + String(now.getDate()).padStart(2, "0") + ".";
+            var lastModifiedEl = document.getElementById("basic-info-last-modified");
+            if (lastModifiedEl) {
+                lastModifiedEl.textContent = "· 최근 설정일 : " + dateStr;
+            }
+
+            if (typeof window.syncBasicInfoToCafeDetailJs === "function") {
+                window.syncBasicInfoToCafeDetailJs(newName, newIcon);
+            }
+
+            closeCafeBoardManageModalDirect();
+            alert("카페 기본 정보가 저장되었습니다.");
+        }
+        window.saveCafeBasicInfoDirect = saveCafeBasicInfoDirect;
+
+        function closeCafeBoardManageModalDirect() {
+            var menuView = document.getElementById("cafe-menu-manage-view");
+            var grid = document.querySelector(".cafe-layout-grid");
+            if (menuView) menuView.style.display = "none";
+            if (grid) grid.style.display = "grid";
+            window.selectedMenuIdx = -1;
+            selectBoardDirect(window.currentSelectedBoardType || "all");
+        }
+        window.closeCafeBoardManageModal = closeCafeBoardManageModalDirect;
+        window.closeCafeBoardManageModalDirect = closeCafeBoardManageModalDirect;
+
+        function selectPaletteItemDirect(type, label, el) {
+            window.selectedPaletteType = type || "board";
+            window.selectedPaletteLabel = label || MENU_TYPE_LABELS[type] || "통합게시판";
+            var items = document.querySelectorAll(".mm-palette-item");
+            items.forEach(function(i) { i.classList.remove("selected"); });
+            if (el) el.classList.add("selected");
+        }
+        window.selectPaletteItemDirect = selectPaletteItemDirect;
+
+        function addMenuFromPaletteDirect(type, label) {
+            var t = type || window.selectedPaletteType || "board";
+            var baseLabel = label || window.selectedPaletteLabel || MENU_TYPE_LABELS[t] || "통합게시판";
+
+            if (t === "divider") {
+                window.tempEditingBoards.push({
+                    id: "b_div_" + Date.now() + "_" + Math.random().toString(36).substring(2, 5),
+                    name: "구분선",
+                    type: "divider",
+                    indent: false
+                });
+                window.selectedMenuIdx = window.tempEditingBoards.length - 1;
+                renderMenuManageTreeDirect();
+                renderMenuManageDetailDirect();
+                return;
+            }
+
+            var newName = "새로운 " + baseLabel;
+            if (t === "group") newName = "새로운 그룹 제목";
+            if (t === "link") newName = "새로운 링크";
+
+            var counter = 1;
+            var candidate = newName;
+            while (window.tempEditingBoards.some(function(b) { return b.type !== "divider" && b.name === candidate; })) {
+                counter++;
+                candidate = newName + " " + counter;
+            }
+
+            var newItem = {
+                id: "b_" + Date.now() + "_" + Math.random().toString(36).substring(2, 6),
+                name: candidate,
+                type: t,
+                indent: false,
+                desc: "",
+                url: t === "link" ? "https://" : ""
+            };
+
+            if (window.selectedMenuIdx >= 0 && window.selectedMenuIdx < window.tempEditingBoards.length) {
+                window.tempEditingBoards.splice(window.selectedMenuIdx + 1, 0, newItem);
+                window.selectedMenuIdx = window.selectedMenuIdx + 1;
+            } else {
+                window.tempEditingBoards.push(newItem);
+                window.selectedMenuIdx = window.tempEditingBoards.length - 1;
+            }
+
+            renderMenuManageTreeDirect();
+            renderMenuManageDetailDirect();
+
+            setTimeout(function() {
+                var nameInp = document.getElementById("mm-edit-board-name");
+                if (nameInp) {
+                    nameInp.focus();
+                    nameInp.select();
+                }
+            }, 30);
+        }
+        window.addMenuFromPaletteDirect = addMenuFromPaletteDirect;
+
+        function selectMenuTreeItemDirect(idx) {
+            window.selectedMenuIdx = idx;
+            renderMenuManageTreeDirect();
+            renderMenuManageDetailDirect();
+        }
+        window.selectMenuTreeItemDirect = selectMenuTreeItemDirect;
+
+        function renderMenuManageTreeDirect() {
+            var container = document.getElementById("mm-center-tree-list");
+            if (!container) return;
+            container.innerHTML = "";
+
+            // Fixed top items (전체글보기)
+            var fixedTop = document.createElement("div");
+            fixedTop.className = "mm-tree-item mm-tree-fixed";
+            fixedTop.innerHTML = '<i class="fa-regular fa-file-lines mm-tree-icon"></i><span>전체글보기</span>';
+            fixedTop.onclick = function() {
+                window.selectedMenuIdx = -1;
+                renderMenuManageTreeDirect();
+                renderMenuManageDetailDirect();
+            };
+            container.appendChild(fixedTop);
+
+            var fixedDiv = document.createElement("div");
+            fixedDiv.className = "mm-tree-divider";
+            container.appendChild(fixedDiv);
+
+            var list = window.tempEditingBoards || [];
+            list.forEach(function(item, idx) {
+                var row = document.createElement("div");
+                var isSelected = (window.selectedMenuIdx === idx);
+                row.className = "mm-tree-item" + (isSelected ? " active" : "") + (item.indent ? " indented" : "");
+                row.setAttribute("draggable", "true");
+
+                row.ondragstart = function(ev) {
+                    window.draggedMenuIdx = idx;
+                    ev.dataTransfer.effectAllowed = "move";
+                };
+                row.ondragover = function(ev) {
+                    ev.preventDefault();
+                    ev.dataTransfer.dropEffect = "move";
+                };
+                row.ondrop = function(ev) {
+                    ev.preventDefault();
+                    var fromIdx = window.draggedMenuIdx;
+                    var toIdx = idx;
+                    if (fromIdx < 0 || fromIdx === toIdx || fromIdx >= window.tempEditingBoards.length) return;
+                    var moved = window.tempEditingBoards.splice(fromIdx, 1)[0];
+                    window.tempEditingBoards.splice(toIdx, 0, moved);
+                    window.selectedMenuIdx = toIdx;
+                    window.draggedMenuIdx = -1;
+                    renderMenuManageTreeDirect();
+                    renderMenuManageDetailDirect();
+                };
+
+                row.onclick = function() {
+                    selectMenuTreeItemDirect(idx);
+                };
+
+                if (item.type === "divider") {
+                    row.innerHTML = '<div class="mm-tree-divider-line"></div>';
+                } else {
+                    var safeName = (item.name || "통합게시판").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+                    var indentHtml = item.indent ? '<span class="mm-indent-symbol">ㄴ</span>' : '';
+                    var iconHtml = getMenuIconHtmlDirect(item.type);
+                    row.innerHTML = indentHtml + '<span class="mm-tree-icon">' + iconHtml + '</span><span class="mm-tree-text">' + safeName + '</span>';
+                }
+                container.appendChild(row);
+            });
+        }
+
+        function renderMenuManageDetailDirect() {
+            var guideBox = document.getElementById("mm-right-guide-box");
+            var formBox = document.getElementById("mm-right-edit-form");
+            if (!guideBox || !formBox) return;
+
+            var idx = window.selectedMenuIdx;
+            var list = window.tempEditingBoards || [];
+            if (idx < 0 || idx >= list.length) {
+                guideBox.style.display = "block";
+                formBox.style.display = "none";
+                return;
+            }
+
+            var item = list[idx];
+            if (item.type === "divider") {
+                guideBox.style.display = "none";
+                formBox.style.display = "block";
+                formBox.innerHTML =
+                    '<div class="mm-detail-title">구분선 설정</div>' +
+                    '<p style="font-size:12.5px; color:#666; line-height:1.6; margin-bottom:20px;">메뉴와 메뉴 사이를 구분해 주는 점선 구분선입니다.<br>위/아래 이동 버튼이나 드래그로 위치를 조정하거나 상단 <strong>[- 삭제]</strong> 버튼으로 제거할 수 있습니다.</p>' +
+                    '<button type="button" class="mm-btn-delete-inline" onclick="deleteSelectedMenuDirect()"><i class="fa-solid fa-minus"></i> 구분선 삭제</button>';
+                return;
+            }
+
+            guideBox.style.display = "none";
+            formBox.style.display = "block";
+
+            var typeLabel = MENU_TYPE_LABELS[item.type] || "통합게시판";
+            var safeName = (item.name || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+            var safeDesc = (item.desc || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+            var safeUrl = (item.url || "https://").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+            var urlFieldHtml = item.type === "link" ? (
+                '<div class="mm-form-group">' +
+                    '<label class="mm-form-label">연결 URL</label>' +
+                    '<input type="text" id="mm-edit-board-url" class="mm-form-input" value="' + safeUrl + '" placeholder="https://" oninput="updateSelectedMenuFieldDirect(\'url\', this.value)">' +
+                '</div>'
+            ) : '';
+
+            formBox.innerHTML =
+                '<div class="mm-detail-header-row">' +
+                    '<span class="mm-detail-title">' + typeLabel + ' 상세설정</span>' +
+                    '<span class="mm-detail-badge">' + typeLabel + '</span>' +
+                '</div>' +
+                '<div class="mm-form-group">' +
+                    '<label class="mm-form-label">메뉴명 <span style="color:#eb5757;">*</span></label>' +
+                    '<input type="text" id="mm-edit-board-name" class="mm-form-input" value="' + safeName + '" maxlength="25" placeholder="게시판 이름을 입력하세요" oninput="updateSelectedMenuFieldDirect(\'name\', this.value)">' +
+                    '<div class="mm-form-hint">입력 즉시 왼쪽 메뉴 목록에 반영되며, 하단 <strong>[저장하기]</strong>를 누르면 최종 적용됩니다.</div>' +
+                '</div>' +
+                urlFieldHtml +
+                '<div class="mm-form-group">' +
+                    '<label class="mm-form-label">메뉴 설명</label>' +
+                    '<input type="text" id="mm-edit-board-desc" class="mm-form-input" value="' + safeDesc + '" maxlength="60" placeholder="게시판에 대한 간단한 설명을 입력하세요" oninput="updateSelectedMenuFieldDirect(\'desc\', this.value)">' +
+                '</div>' +
+                '<div class="mm-form-group">' +
+                    '<label class="mm-form-label">권한 설정</label>' +
+                    '<div class="mm-perm-grid">' +
+                        '<div class="mm-perm-row"><span>글쓰기</span><select class="mm-perm-select"><option>카페 멤버</option><option>매니저만</option></select></div>' +
+                        '<div class="mm-perm-row"><span>댓글쓰기</span><select class="mm-perm-select"><option>카페 멤버</option><option>매니저만</option></select></div>' +
+                        '<div class="mm-perm-row"><span>읽기</span><select class="mm-perm-select"><option>카페 멤버</option><option>전체 공개</option></select></div>' +
+                    '</div>' +
+                '</div>' +
+                '<div class="mm-form-group" style="margin-top: 14px;">' +
+                    '<label class="mm-check-row"><input type="checkbox" ' + (item.indent ? 'checked' : '') + ' onchange="toggleIndentSelectedMenuDirect(this.checked)"> <span>들여쓰기 적용 (하위 게시판으로 표시)</span></label>' +
+                '</div>';
+        }
+
+        function updateSelectedMenuFieldDirect(field, val) {
+            var idx = window.selectedMenuIdx;
+            var list = window.tempEditingBoards || [];
+            if (idx < 0 || idx >= list.length) return;
+            var item = list[idx];
+
+            if (field === "name") {
+                var trimmed = val.trim();
+                var oldName = item.name;
+                item.name = val;
+                if (trimmed && item.origName && trimmed !== item.origName) {
+                    window.tempRenamedBoardsMap[item.origName] = trimmed;
+                } else if (item.origName && trimmed === item.origName) {
+                    delete window.tempRenamedBoardsMap[item.origName];
+                }
+                // Live update tree text without losing input focus
+                var treeItems = document.querySelectorAll("#mm-center-tree-list .mm-tree-item:not(.mm-tree-fixed)");
+                if (treeItems[idx]) {
+                    var textSpan = treeItems[idx].querySelector(".mm-tree-text");
+                    if (textSpan) textSpan.textContent = val || "(이름 없음)";
+                }
+            } else if (field === "desc") {
+                item.desc = val;
+            } else if (field === "url") {
+                item.url = val;
+            }
+        }
+        window.updateSelectedMenuFieldDirect = updateSelectedMenuFieldDirect;
+
+        function moveSelectedMenuDirect(action) {
+            var idx = window.selectedMenuIdx;
+            var list = window.tempEditingBoards || [];
+            if (idx < 0 || idx >= list.length) {
+                alert("이동할 메뉴를 먼저 선택해 주세요.");
+                return;
+            }
+            var targetIdx = idx;
+            if (action === "top") targetIdx = 0;
+            else if (action === "bottom") targetIdx = list.length - 1;
+            else if (action === "up") targetIdx = Math.max(0, idx - 1);
+            else if (action === "down") targetIdx = Math.min(list.length - 1, idx + 1);
+
+            if (targetIdx === idx) return;
+            var moved = list.splice(idx, 1)[0];
+            list.splice(targetIdx, 0, moved);
+            window.selectedMenuIdx = targetIdx;
+            renderMenuManageTreeDirect();
+            renderMenuManageDetailDirect();
+        }
+        window.moveSelectedMenuDirect = moveSelectedMenuDirect;
+
+        function toggleIndentSelectedMenuDirect(forceVal) {
+            var idx = window.selectedMenuIdx;
+            var list = window.tempEditingBoards || [];
+            if (idx < 0 || idx >= list.length) {
+                alert("들여쓰기할 메뉴를 먼저 선택해 주세요.");
+                return;
+            }
+            var item = list[idx];
+            if (item.type === "divider") return;
+            item.indent = typeof forceVal === "boolean" ? forceVal : !item.indent;
+            renderMenuManageTreeDirect();
+            renderMenuManageDetailDirect();
+        }
+        window.toggleIndentSelectedMenuDirect = toggleIndentSelectedMenuDirect;
+
+        function deleteSelectedMenuDirect() {
+            var idx = window.selectedMenuIdx;
+            var list = window.tempEditingBoards || [];
+            if (idx < 0 || idx >= list.length) {
+                alert("삭제할 메뉴를 먼저 선택해 주세요.");
+                return;
+            }
+            var item = list[idx];
+            var boardCount = list.filter(function(m) { return m.type !== "divider" && m.type !== "group" && m.type !== "link"; }).length;
+            if (item.type !== "divider" && item.type !== "group" && item.type !== "link" && boardCount <= 1) {
+                alert("최소 1개 이상의 게시판 메뉴는 남겨두어야 합니다.");
+                return;
+            }
+            window.tempEditingBoards.splice(idx, 1);
+            if (window.tempEditingBoards.length === 0) {
+                window.selectedMenuIdx = -1;
+            } else {
+                window.selectedMenuIdx = Math.min(idx, window.tempEditingBoards.length - 1);
+            }
+            renderMenuManageTreeDirect();
+            renderMenuManageDetailDirect();
+        }
+        window.deleteSelectedMenuDirect = deleteSelectedMenuDirect;
+
+        async function saveCafeBoardManageDirect() {
+            var rawList = window.tempEditingBoards || [];
+            for (var i = 0; i < rawList.length; i++) {
+                if (rawList[i].type !== "divider") {
+                    rawList[i].name = (rawList[i].name || "").trim();
+                    if (!rawList[i].name) {
+                        alert("이름이 비어 있는 메뉴가 있습니다. 메뉴명을 입력해 주세요.");
+                        window.selectedMenuIdx = i;
+                        renderMenuManageTreeDirect();
+                        renderMenuManageDetailDirect();
+                        return;
+                    }
+                }
+            }
+
+            var cleanMenuObjects = rawList.map(function(m) {
+                return {
+                    id: m.id,
+                    name: m.name,
+                    type: m.type || "board",
+                    indent: Boolean(m.indent),
+                    desc: m.desc || "",
+                    url: m.url || ""
+                };
+            });
+
+            var cafe = window.currentCafeRecord || {};
+            cafe.boards = cleanMenuObjects;
+            cafe.board = cleanMenuObjects;
+
+            var renameMap = window.tempRenamedBoardsMap || {};
+            var renameKeys = Object.keys(renameMap);
+            var pbUrl = "https://pb.joyfamkr.synology.me";
+
+            if (renameKeys.length > 0 && Array.isArray(cafe.posts)) {
+                var postsToPatch = [];
+                cafe.posts.forEach(function(p) {
+                    var oldB = p.board || "자유게시판";
+                    if (renameMap[oldB]) {
+                        p.board = renameMap[oldB];
+                        if (p.id && String(p.id).indexOf("p_") !== 0) {
+                            postsToPatch.push({ id: p.id, board: p.board });
+                        }
+                    }
+                });
+                if (postsToPatch.length > 0) {
+                    await Promise.all(postsToPatch.map(function(item) {
+                        return fetch(pbUrl + "/api/collections/cafe_posts/records/" + item.id, {
+                            method: "PATCH",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ board: item.board })
+                        }).catch(function() {});
+                    }));
+                }
+            }
+
+            await fetchAndMergeCafeRecordDirect(cafe, function(c) {
+                c.boards = cleanMenuObjects;
+                c.board = cleanMenuObjects;
+            });
+            window.currentCafeRecord = cafe;
+
+            if (typeof window.syncBoardsToCafeDetailJs === "function") {
+                window.syncBoardsToCafeDetailJs(cleanMenuObjects, renameMap);
+            }
+
+            renderCafeSidebarBoardsDirect();
+
+            var menuView = document.getElementById("cafe-menu-manage-view");
+            var grid = document.querySelector(".cafe-layout-grid");
+            if (menuView) menuView.style.display = "none";
+            if (grid) grid.style.display = "grid";
+
+            var boardNames = getCafeBoardsDirect(cafe);
+            var curActive = window.currentSelectedBoardType || "all";
+            if (curActive !== "all" && curActive !== "hot" && curActive !== "free") {
+                if (renameMap[curActive]) {
+                    selectBoardDirect(renameMap[curActive]);
+                } else if (boardNames.indexOf(curActive) === -1) {
+                    selectBoardDirect("all");
+                } else {
+                    selectBoardDirect(curActive);
+                }
+            } else {
+                selectBoardDirect(curActive);
+            }
+
+            alert("메뉴 설정이 저장되었습니다.");
+        }
+        window.saveCafeBoardManageDirect = saveCafeBoardManageDirect;
+
+        // ==========================================
+        // Cafe Post Move Modal (게시글 이동 팝업)
+        // ==========================================
+        window.pendingMovePostIds = [];
+
+        function openCafePostMoveModalDirect() {
+            var isAuth = (localStorage.getItem("naverIsLoggedIn") === "true") || Boolean(localStorage.getItem("naverLoggedInUser"));
+            if (!isAuth) {
+                alert("로그인이 필요한 서비스입니다.");
+                return;
+            }
+            var checkedItems = document.querySelectorAll(".post-check-item:checked");
+            if (!checkedItems || checkedItems.length === 0) {
+                alert("이동할 게시글을 선택해 주세요.");
+                return;
+            }
+
+            var cafe = window.currentCafeRecord || {};
+            var posts = Array.isArray(cafe.posts) ? cafe.posts : [];
+            var isMgr = isCurrentCafeManagerDirect();
+            var curUser = (localStorage.getItem("naverLoggedInUser") || "").trim();
+            var curId = (localStorage.getItem("naverLoggedInUserId") || "").trim();
+
+            var ids = [];
+            var unauthorizedCount = 0;
+            Array.from(checkedItems).forEach(function(chk) {
+                var pid = chk.getAttribute("data-id");
+                if (!pid) return;
+                var postObj = posts.find(function(p) { return String(p.id) === String(pid); });
+                if (isMgr) {
+                    ids.push(pid);
+                } else if (postObj) {
+                    var pAuth = (postObj.author || "").trim();
+                    var pAuthId = (postObj.authorId || "").trim();
+                    if ((curUser && (pAuth === curUser || pAuth.includes(curUser))) || (curId && pAuthId === curId)) {
+                        ids.push(pid);
+                    } else {
+                        unauthorizedCount++;
+                    }
+                }
+            });
+
+            if (unauthorizedCount > 0 && !isMgr) {
+                alert("카페 매니저이거나 본인이 작성한 게시글만 이동할 수 있습니다.");
+                return;
+            }
+            if (ids.length === 0) {
+                alert("이동할 게시글을 선택해 주세요.");
+                return;
+            }
+
+            window.pendingMovePostIds = ids;
+
+            var boardSelect = document.getElementById("move-target-board-select");
+            if (boardSelect) {
+                var boards = getCafeBoardsDirect();
+                var curBoard = window.currentSelectedBoardType;
+                boardSelect.innerHTML = "";
+                boards.forEach(function(bName, idx) {
+                    var opt = document.createElement("option");
+                    opt.value = bName;
+                    opt.textContent = bName;
+                    if (curBoard && curBoard !== "all" && curBoard !== "hot" && bName === curBoard) {
+                        opt.selected = true;
+                    } else if (idx === 0) {
+                        opt.selected = true;
+                    }
+                    boardSelect.appendChild(opt);
+                });
+            }
+
+            var prefixSelect = document.getElementById("move-target-prefix-select");
+            if (prefixSelect) {
+                prefixSelect.value = "";
+            }
+
+            var modal = document.getElementById("cafe-post-move-modal");
+            if (modal) modal.classList.add("active");
+        }
+        window.openCafePostMoveModalDirect = openCafePostMoveModalDirect;
+
+        function closeCafePostMoveModalDirect() {
+            var modal = document.getElementById("cafe-post-move-modal");
+            if (modal) modal.classList.remove("active");
+            window.pendingMovePostIds = [];
+        }
+        window.closeCafePostMoveModalDirect = closeCafePostMoveModalDirect;
+
+        async function confirmCafePostMoveDirect() {
+            var ids = window.pendingMovePostIds || [];
+            if (ids.length === 0) {
+                closeCafePostMoveModalDirect();
+                return;
+            }
+            var boardSelect = document.getElementById("move-target-board-select");
+            var prefixSelect = document.getElementById("move-target-prefix-select");
+            var targetBoard = boardSelect ? boardSelect.value : "자유게시판";
+            var targetPrefix = prefixSelect ? prefixSelect.value : "";
+
+            var cafe = window.currentCafeRecord || {};
+            var posts = Array.isArray(cafe.posts) ? cafe.posts : [];
+            var pbUrl = "https://pb.joyfamkr.synology.me";
+            var patchJobs = [];
+
+            posts.forEach(function(p) {
+                if (ids.indexOf(String(p.id)) !== -1) {
+                    p.board = targetBoard;
+                    if (targetPrefix) {
+                        var cleanT = (p.title || "").replace(/^\[(잡담|질문|정보|후기)\]\s*/, "");
+                        p.title = "[" + targetPrefix + "] " + cleanT;
+                    }
+                    if (String(p.id).indexOf("p_") !== 0) {
+                        patchJobs.push({
+                            id: p.id,
+                            board: p.board,
+                            title: p.title
+                        });
+                    }
+                }
+            });
+
+            if (patchJobs.length > 0) {
+                await Promise.all(patchJobs.map(function(job) {
+                    return fetch(pbUrl + "/api/collections/cafe_posts/records/" + job.id, {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            board: job.board,
+                            title: job.title
+                        })
+                    }).catch(function() {});
+                }));
+            }
+
+            window.currentCafeRecord = cafe;
+            if (typeof window.syncMovedPostsToCafeDetailJs === "function") {
+                window.syncMovedPostsToCafeDetailJs(ids, targetBoard, targetPrefix);
+            }
+
+            // Uncheck all checkboxes
+            var allChks = document.querySelectorAll(".post-check-item, #check-all-posts, #bottom-check-all");
+            allChks.forEach(function(c) { c.checked = false; });
+
+            closeCafePostMoveModalDirect();
+            selectBoardDirect(targetBoard);
+            alert("선택한 게시글이 '" + targetBoard + "' 게시판으로 이동되었습니다.");
+        }
+        window.confirmCafePostMoveDirect = confirmCafePostMoveDirect;
     </script>
     <style>
         /* Cafe Secede Sidebar Box */
@@ -1908,6 +2963,612 @@
             background: #f4f5f7;
             border-color: #999;
         }
+
+        /* Cafe Menu Management Full View (메뉴 관리 & 기본 정보 - Matching User Screenshot) */
+        .cafe-menu-manage-view {
+            background: #fff;
+            padding: 16px 0 50px 0;
+        }
+        .cafe-admin-nav-tabs {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border-bottom: 1px solid #dfe2e6;
+            margin-bottom: 22px;
+        }
+        .cafe-admin-tab-btn {
+            background: #f5f6f8;
+            border: 1px solid #dfe2e6;
+            border-bottom: none;
+            color: #666;
+            font-size: 13.5px;
+            font-weight: 700;
+            padding: 10px 22px;
+            cursor: pointer;
+            border-radius: 4px 4px 0 0;
+            font-family: inherit;
+        }
+        .cafe-admin-tab-btn.active {
+            background: #fff;
+            color: #111;
+            border-color: #4a505a #dfe2e6 #fff #dfe2e6;
+            border-top: 2px solid #03c75a;
+            margin-bottom: -1px;
+        }
+        .basic-info-section-wrap {
+            padding: 10px 10px 30px 10px;
+        }
+        .basic-info-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 36px;
+        }
+        .basic-info-main-title {
+            font-size: 24px;
+            font-weight: 800;
+            color: #111;
+            letter-spacing: -0.5px;
+        }
+        .basic-info-body-layout {
+            display: flex;
+            align-items: flex-start;
+            gap: 48px;
+            max-width: 860px;
+            padding-left: 8px;
+        }
+        .basic-info-avatar-col {
+            position: relative;
+            width: 134px;
+            height: 134px;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+        .basic-info-avatar-circle {
+            width: 134px;
+            height: 134px;
+            border-radius: 50%;
+            overflow: hidden;
+            border: 1px solid #e5e8eb;
+            background: #f8f9fa;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .basic-info-avatar-circle img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .basic-info-camera-btn {
+            position: absolute;
+            right: 2px;
+            bottom: 2px;
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: #fff;
+            border: 1px solid #e1e4e8;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.12);
+            color: #333;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+        .basic-info-camera-btn:hover {
+            background: #f4f5f7;
+            color: #03c75a;
+        }
+        .basic-info-fields-col {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 28px;
+        }
+        .basic-info-field-block {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .basic-info-label {
+            font-size: 14.5px;
+            font-weight: 800;
+            color: #222;
+        }
+        .basic-info-label .req-star {
+            color: #e03131;
+            margin-left: 2px;
+        }
+        .basic-info-readonly-box {
+            background: #f5f6f8;
+            border-radius: 8px;
+            padding: 15px 18px;
+            font-size: 14px;
+            color: #333;
+            font-weight: 500;
+        }
+        .basic-info-text-input {
+            width: 100%;
+            background: #fff;
+            border: 1px solid #e1e4e8;
+            border-radius: 8px;
+            padding: 15px 18px;
+            font-size: 14px;
+            color: #222;
+            outline: none;
+            font-family: inherit;
+            transition: border-color 0.15s;
+        }
+        .basic-info-text-input:focus {
+            border-color: #03c75a;
+        }
+        .basic-info-notes-list {
+            list-style: none;
+            padding: 0;
+            margin: 4px 0 0 0;
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            font-size: 12.5px;
+            color: #999;
+        }
+        .mm-top-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #4a505a;
+            margin-bottom: 16px;
+        }
+        .mm-top-left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .mm-page-title {
+            font-size: 20px;
+            font-weight: 800;
+            color: #222;
+            letter-spacing: -0.5px;
+        }
+        .mm-btn-sub-top {
+            background: #fff;
+            border: 1px solid #ccc;
+            color: #444;
+            font-size: 11.5px;
+            padding: 4px 10px;
+            cursor: pointer;
+            border-radius: 2px;
+        }
+        .mm-help-circle {
+            color: #999;
+            font-size: 14px;
+            cursor: help;
+        }
+        .mm-top-right {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .mm-btn-cancel {
+            background: #fff;
+            border: 1px solid #c5c8ce;
+            color: #444;
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 18px;
+            cursor: pointer;
+            border-radius: 2px;
+        }
+        .mm-btn-cancel:hover {
+            background: #f4f5f7;
+        }
+        .mm-btn-save {
+            background: #485465;
+            border: 1px solid #3c4654;
+            color: #fff;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 6px 18px;
+            cursor: pointer;
+            border-radius: 2px;
+        }
+        .mm-btn-save:hover {
+            background: #384250;
+        }
+        .mm-workspace-grid {
+            display: grid;
+            grid-template-columns: 165px 38px 1fr;
+            align-items: stretch;
+            min-height: 540px;
+        }
+        .mm-left-palette {
+            border: 1px solid #d5d8dc;
+            background: #f9fafb;
+            padding: 12px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .mm-palette-group {
+            border-bottom: 1px solid #e7e9ec;
+            padding-bottom: 12px;
+        }
+        .mm-palette-group:last-child {
+            border-bottom: none;
+        }
+        .mm-palette-group-title {
+            font-size: 12px;
+            font-weight: 800;
+            color: #333;
+            margin-bottom: 8px;
+            padding-left: 4px;
+        }
+        .mm-palette-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .mm-palette-item {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 12px;
+            color: #444;
+            padding: 5px 6px;
+            border-radius: 2px;
+            cursor: pointer;
+            user-select: none;
+        }
+        .mm-palette-item i {
+            font-size: 12px;
+            color: #777;
+            width: 14px;
+            text-align: center;
+        }
+        .mm-palette-item:hover {
+            background: #eef1f5;
+            color: #111;
+        }
+        .mm-palette-item.selected {
+            background: #e1e8f0;
+            color: #111;
+            font-weight: 700;
+        }
+        .mm-palette-item.disabled {
+            color: #bbb;
+            cursor: default;
+        }
+        .mm-palette-item.disabled i {
+            color: #ccc;
+        }
+        .mm-add-bridge {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding-top: 120px;
+            align-self: flex-start;
+        }
+        .mm-btn-plus-bridge {
+            width: 26px;
+            height: 150px;
+            background: #f8f9fa;
+            border: 1px solid #d0d4d9;
+            color: #888;
+            font-size: 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 2px;
+        }
+        .mm-btn-plus-bridge:hover {
+            background: #eef1f5;
+            color: #333;
+            border-color: #adb5bd;
+        }
+        .mm-main-box {
+            border: 1px solid #d5d8dc;
+            background: #fff;
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            min-height: 540px;
+        }
+        .mm-center-column {
+            border-right: 1px solid #d5d8dc;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+        .mm-toolbar-strip {
+            display: flex;
+            align-items: center;
+            background: #f5f6f8;
+            border-bottom: 1px solid #d5d8dc;
+            height: 30px;
+        }
+        .mm-toolbar-strip.bottom {
+            border-bottom: none;
+            border-top: 1px solid #d5d8dc;
+        }
+        .mm-tool-btn {
+            background: transparent;
+            border: none;
+            border-right: 1px solid #e1e4e8;
+            color: #666;
+            font-size: 11px;
+            height: 100%;
+            padding: 0 7px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            white-space: nowrap;
+        }
+        .mm-tool-btn:last-child {
+            border-right: none;
+        }
+        .mm-tool-btn:hover {
+            background: #e9ecef;
+            color: #111;
+        }
+        .mm-center-tree-list {
+            flex: 1;
+            overflow-y: auto;
+            max-height: 480px;
+            padding: 8px 0;
+            background: #fff;
+        }
+        .mm-tree-item {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            padding: 6px 14px;
+            font-size: 12.5px;
+            color: #333;
+            cursor: pointer;
+            user-select: none;
+        }
+        .mm-tree-item.indented {
+            padding-left: 28px;
+        }
+        .mm-indent-symbol {
+            color: #999;
+            font-size: 11px;
+        }
+        .mm-tree-item:hover {
+            background: #f4f6f9;
+        }
+        .mm-tree-item.active {
+            background: #e8f0fe;
+            color: #1967d2;
+            font-weight: 700;
+        }
+        .mm-tree-item.mm-tree-fixed {
+            color: #555;
+            cursor: default;
+        }
+        .mm-tree-icon {
+            color: #888;
+            font-size: 12px;
+            width: 14px;
+            text-align: center;
+        }
+        .mm-tree-item.active .mm-tree-icon {
+            color: #1967d2;
+        }
+        .mm-tree-divider {
+            height: 1px;
+            background: #eceef0;
+            margin: 6px 0;
+        }
+        .mm-tree-divider-line {
+            width: 100%;
+            border-bottom: 1px dashed #bbb;
+            height: 4px;
+            margin: 4px 0;
+        }
+        .mm-right-column {
+            padding: 26px 30px;
+            background: #fff;
+        }
+        .mm-guide-title {
+            font-size: 13px;
+            font-weight: 800;
+            color: #333;
+            margin-bottom: 12px;
+        }
+        .mm-guide-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-size: 12px;
+            color: #777;
+            line-height: 1.55;
+        }
+        .mm-guide-list li.mm-guide-green {
+            color: #4f9e3a;
+        }
+        .mm-detail-header-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid #eceef0;
+            padding-bottom: 12px;
+            margin-bottom: 20px;
+        }
+        .mm-detail-title {
+            font-size: 15px;
+            font-weight: 800;
+            color: #222;
+        }
+        .mm-detail-badge {
+            background: #f1f3f5;
+            border: 1px solid #dee2e6;
+            color: #555;
+            font-size: 11px;
+            font-weight: 600;
+            padding: 2px 8px;
+            border-radius: 3px;
+        }
+        .mm-form-group {
+            margin-bottom: 18px;
+        }
+        .mm-form-label {
+            display: block;
+            font-size: 12.5px;
+            font-weight: 700;
+            color: #333;
+            margin-bottom: 7px;
+        }
+        .mm-form-input {
+            width: 100%;
+            border: 1px solid #ced4da;
+            border-radius: 2px;
+            padding: 8px 10px;
+            font-size: 13px;
+            color: #222;
+            outline: none;
+            font-family: inherit;
+        }
+        .mm-form-input:focus {
+            border-color: #485465;
+        }
+        .mm-form-hint {
+            font-size: 11.5px;
+            color: #888;
+            margin-top: 6px;
+        }
+        .mm-perm-grid {
+            border: 1px solid #e5e8eb;
+            background: #fafbfc;
+            padding: 12px 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .mm-perm-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 12.5px;
+            color: #444;
+        }
+        .mm-perm-select {
+            border: 1px solid #ced4da;
+            padding: 4px 10px;
+            font-size: 12px;
+            background: #fff;
+            min-width: 130px;
+        }
+        .mm-check-row {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            font-size: 12.5px;
+            color: #333;
+            cursor: pointer;
+        }
+        .mm-btn-delete-inline {
+            background: #fff5f5;
+            border: 1px solid #ffc9c9;
+            color: #e03131;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 7px 14px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        .mm-bottom-footer {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 24px;
+            padding-top: 16px;
+            border-top: 1px solid #e5e8eb;
+        }
+        .mm-bottom-footer .mm-btn-cancel,
+        .mm-bottom-footer .mm-btn-save {
+            padding: 9px 28px;
+            font-size: 13px;
+        }
+        .btn-sidebar-board-edit {
+            background: none;
+            border: none;
+            color: #888;
+            font-size: 11px;
+            cursor: pointer;
+            padding: 2px 4px;
+            border-radius: 3px;
+        }
+        .btn-sidebar-board-edit:hover {
+            color: #03c75a;
+            background: #f1f3f5;
+        }
+
+        /* Post Move Modal (게시글 이동 - Matching User Screenshot) */
+        .post-move-guide-text {
+            text-align: center;
+            font-size: 12.5px;
+            color: #5b9a32;
+            line-height: 1.55;
+            margin-bottom: 18px;
+        }
+        .post-move-form-box {
+            background: #f9f9f9;
+            border-top: 1px solid #e5e5e5;
+            border-bottom: 1px solid #e5e5e5;
+            padding: 18px 24px;
+            margin-bottom: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .post-move-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+        }
+        .post-move-label {
+            font-size: 12.5px;
+            font-weight: 700;
+            color: #333;
+            width: 75px;
+            text-align: left;
+        }
+        .post-move-label.muted {
+            color: #bbb;
+        }
+        .post-move-select {
+            width: 170px;
+            border: 1px solid #b5b9be;
+            border-radius: 2px;
+            padding: 4px 8px;
+            font-size: 12.5px;
+            color: #222;
+            background: #fff;
+            outline: none;
+            font-family: inherit;
+        }
+        .btn-board-move {
+            background: #f1f3f5;
+            border: 1px solid #dee2e6;
+            color: #333;
+        }
+        .btn-board-move:hover {
+            background: #e9ecef;
+            color: #000;
+        }
     </style>
 </head>
 <body>
@@ -1965,7 +3626,7 @@
     <div class="cafe-wrapper">
         <!-- Cafe Top Hero Banner Graphic Box -->
         <div class="cafe-hero-banner" id="cafe-hero-banner">
-            <div class="hero-brand-area">
+            <div class="hero-brand-area" style="cursor: pointer;" onclick="selectBoardDirect('all')" title="카페 메인으로 이동">
                 <div class="cafe-badge-symbol">Café</div>
                 <h1 class="cafe-title-main" id="cafe-title-main">통장모임</h1>
                 <p class="cafe-url-sub" id="cafe-url-sub">https://cafe.eduver.com</p>
@@ -2004,34 +3665,41 @@
                                     if (titleEl) titleEl.textContent = cafe.name;
                                     if (mgrEl) mgrEl.textContent = cafe.manager || '매니저';
                                     if (memberEl) memberEl.textContent = cafe.members || '1';
+                                    if (typeof renderCafeSidebarBoardsDirect === 'function') {
+                                        renderCafeSidebarBoardsDirect();
+                                    }
 
-                                    // Update Manager Profile Avatar
+                                    // Update Cafe / Manager Profile Avatar (Cafe custom icon takes priority)
                                     var avatarEl = document.getElementById('cafe-profile-avatar');
                                     var rawMgr = (cafe.manager || '').trim();
                                     var cleanMgr = rawMgr.replace(/님$/, '').trim();
                                     if (avatarEl) {
-                                        var cachedAvatar = localStorage.getItem('naverUserAvatar_' + cleanMgr) || localStorage.getItem('naverBlogAvatar_' + cleanMgr);
-                                        if (cachedAvatar && cachedAvatar !== 'default-avatar.svg') {
-                                            avatarEl.src = cachedAvatar;
-                                        } else if (cafe.icon && cafe.icon !== 'default-avatar.svg') {
+                                        if (cafe.icon && cafe.icon !== 'default-avatar.svg') {
                                             avatarEl.src = cafe.icon;
-                                        }
-                                        if (cleanMgr) {
-                                            fetch('https://pb.joyfamkr.synology.me/api/collections/users/records?filter=' + encodeURIComponent("(name='" + cleanMgr + "'||username='" + cleanMgr + "')"))
-                                                .then(function(r){ return r.json(); })
-                                                .then(function(uData){
-                                                    if (uData.items && uData.items.length > 0) {
-                                                        var uRec = uData.items[0];
-                                                        var aUrl = uRec.avatarUrl || uRec.avatar;
-                                                        if (aUrl) {
-                                                            if (!aUrl.startsWith('data:') && !aUrl.startsWith('http')) {
-                                                                aUrl = 'https://pb.joyfamkr.synology.me/api/files/' + uRec.collectionId + '/' + uRec.id + '/' + aUrl;
+                                        } else {
+                                            var cachedAvatar = localStorage.getItem('naverUserAvatar_' + cleanMgr) || localStorage.getItem('naverBlogAvatar_' + cleanMgr);
+                                            if (cachedAvatar && cachedAvatar !== 'default-avatar.svg') {
+                                                avatarEl.src = cachedAvatar;
+                                            }
+                                            if (cleanMgr) {
+                                                fetch('https://pb.joyfamkr.synology.me/api/collections/users/records?filter=' + encodeURIComponent("(name='" + cleanMgr + "'||username='" + cleanMgr + "')"))
+                                                    .then(function(r){ return r.json(); })
+                                                    .then(function(uData){
+                                                        if (uData.items && uData.items.length > 0) {
+                                                            var uRec = uData.items[0];
+                                                            var aUrl = uRec.avatarUrl || uRec.avatar;
+                                                            if (aUrl) {
+                                                                if (!aUrl.startsWith('data:') && !aUrl.startsWith('http')) {
+                                                                    aUrl = 'https://pb.joyfamkr.synology.me/api/files/' + uRec.collectionId + '/' + uRec.id + '/' + aUrl;
+                                                                }
+                                                                if (!cafe.icon || cafe.icon === 'default-avatar.svg') {
+                                                                    avatarEl.src = aUrl;
+                                                                }
+                                                                localStorage.setItem('naverUserAvatar_' + cleanMgr, aUrl);
                                                             }
-                                                            avatarEl.src = aUrl;
-                                                            localStorage.setItem('naverUserAvatar_' + cleanMgr, aUrl);
                                                         }
-                                                    }
-                                                }).catch(function(){});
+                                                    }).catch(function(){});
+                                            }
                                         }
                                     }
 
@@ -2088,11 +3756,17 @@
                                             var totalBadge = document.getElementById('sidebar-total-posts');
                                             if (totalBadge) totalBadge.textContent = posts.length;
                                             if (posts.length > 0 && tbody) {
+                                                var pageSizeEl = document.getElementById('select-page-size');
+                                                var pageSize = pageSizeEl ? (parseInt(pageSizeEl.value, 10) || 15) : 15;
+                                                var curPage = window.currentBoardPage || 1;
+                                                var startIdx = (curPage - 1) * pageSize;
+                                                var pagedPosts = posts.slice(startIdx, startIdx + pageSize);
                                                 tbody.innerHTML = '';
-                                                posts.forEach(function(post, index) {
+                                                pagedPosts.forEach(function(post, index) {
                                                     var tr = document.createElement('tr');
                                                     if (post.isNotice) tr.className = 'notice-tr';
-                                                    var numOrBadge = post.isNotice ? '<span class="badge-table-notice">공지</span>' : (posts.length - index);
+                                                    var globalIdx = startIdx + index;
+                                                    var numOrBadge = post.isNotice ? '<span class="badge-table-notice">공지</span>' : (posts.length - globalIdx);
                                                     var pTime = (post.time && typeof post.time === 'string') ? (post.time.indexOf(' ') > -1 ? post.time.split(' ')[0] : post.time) : '2026.08.23';
                                                     var commCount = Array.isArray(post.comments) ? post.comments.length : (parseInt(post.commentsCount, 10) || 0);
                                                     var commBadge = commCount > 0 ? '<span class="badge-post-comment-count">[' + commCount + ']</span>' : '';
@@ -2108,6 +3782,9 @@
                                                         '<td>' + (post.likes || 0) + '</td>';
                                                     tbody.appendChild(tr);
                                                 });
+                                                if (typeof renderBoardPaginationRowDirect === 'function') {
+                                                    renderBoardPaginationRowDirect(posts.length, pageSize, curPage);
+                                                }
                                             }
                                         }).catch(function(err) { console.log('Early cafe_posts sync:', err); });
                                 }
@@ -2160,7 +3837,7 @@
                     </div>
 
                     <div class="cafe-manage-actions">
-                        <a href="#"><i class="fa-solid fa-gear"></i> 카페관리</a>
+                        <a href="#" id="btn-cafe-board-manage" onclick="openCafeBoardManageModalDirect(event, 'basic')"><i class="fa-solid fa-gear"></i> 카페관리</a>
                         <span class="sep">|</span>
                         <a href="#"><i class="fa-solid fa-chart-simple"></i> 통계</a>
                         <span class="sep">|</span>
@@ -2226,8 +3903,13 @@
 
                     <div class="menu-divider"></div>
 
-                    <ul class="board-list">
-                        <li class="board-item" data-board="free" style="cursor: pointer;" onclick="selectBoardDirect('free')">
+                    <div class="menu-section-header" style="padding-top: 2px; padding-bottom: 6px;">
+                        <span class="header-title" style="font-size: 11.5px; color: #666;"><i class="fa-regular fa-folder-open"></i> 카페 게시판</span>
+                        <button type="button" class="btn-sidebar-board-edit" onclick="openCafeBoardManageModalDirect(event, 'menu')" title="게시판 추가/이름변경"><i class="fa-solid fa-gear"></i> 관리</button>
+                    </div>
+
+                    <ul class="board-list" id="sidebar-custom-board-list">
+                        <li class="board-item" data-board="자유게시판" style="cursor: pointer;" onclick="selectBoardDirect('자유게시판')">
                             <span class="board-name"><i class="fa-regular fa-folder"></i> 자유게시판</span>
                             <span class="new-dot">N</span>
                         </li>
@@ -2618,7 +4300,7 @@
                                     <button type="button" class="btn-view-icon"><i class="fa-solid fa-table-cells-large"></i></button>
                                     <button type="button" class="btn-view-icon"><i class="fa-solid fa-bars"></i></button>
                                 </div>
-                                <select class="select-page-size" id="select-page-size">
+                                <select class="select-page-size" id="select-page-size" onchange="changeBoardPageSizeDirect(this.value)">
                                     <option value="15">15개씩</option>
                                     <option value="30">30개씩</option>
                                     <option value="50">50개씩</option>
@@ -2664,6 +4346,7 @@
                                 </label>
                             </div>
                             <div class="action-right">
+                                <button type="button" class="btn-board-action btn-board-move" id="btn-board-move" onclick="openCafePostMoveModalDirect()">이동</button>
                                 <button type="button" class="btn-board-action btn-board-delete" id="btn-board-delete">삭제</button>
                                 <button type="button" class="btn-board-action btn-board-write" id="btn-board-write" onclick="if(window.openCafeWriteView)window.openCafeWriteView();">
                                     <i class="fa-solid fa-pen-nib"></i> 글쓰기
@@ -2861,6 +4544,175 @@
                 </div>
             </div>
         </div>
+
+        <!-- 5. Cafe Admin Full View (기본 정보 & 메뉴 관리 - Matching User Screenshot) -->
+        <div class="cafe-menu-manage-view" id="cafe-menu-manage-view" style="display: none;">
+            <!-- Top Admin Sub-Navigation Tabs -->
+            <div class="cafe-admin-nav-tabs">
+                <button type="button" class="cafe-admin-tab-btn active" id="admin-tab-btn-basic" onclick="switchCafeAdminTabDirect('basic')">기본 정보</button>
+                <button type="button" class="cafe-admin-tab-btn" id="admin-tab-btn-menu" onclick="switchCafeAdminTabDirect('menu')">메뉴 관리</button>
+            </div>
+
+            <!-- TAB 1: 기본 정보 (카페 이름 & 카페 대표 이미지 설정 - Matching User Screenshot) -->
+            <div id="admin-panel-basic-info" class="basic-info-section-wrap">
+                <div class="basic-info-header-row">
+                    <h2 class="basic-info-main-title">기본 정보</h2>
+                    <div class="mm-top-right">
+                        <button type="button" class="mm-btn-cancel" onclick="closeCafeBoardManageModalDirect()">취소</button>
+                        <button type="button" class="mm-btn-save" onclick="saveCafeBasicInfoDirect()">저장하기</button>
+                    </div>
+                </div>
+
+                <div class="basic-info-body-layout">
+                    <!-- Left Circular Cafe Icon + Camera Button -->
+                    <div class="basic-info-avatar-col" onclick="triggerBasicInfoIconUploadDirect()" title="카페 대표 이미지 변경">
+                        <div class="basic-info-avatar-circle">
+                            <img src="default-avatar.svg" id="basic-info-icon-preview" alt="카페 이미지" onerror="this.src='default-avatar.svg'">
+                        </div>
+                        <button type="button" class="basic-info-camera-btn" onclick="event.stopPropagation(); triggerBasicInfoIconUploadDirect();" title="이미지 변경">
+                            <i class="fa-solid fa-camera"></i>
+                        </button>
+                        <input type="file" id="basic-info-icon-file" accept="image/*" style="display: none;" onchange="handleBasicInfoIconChangeDirect(this)">
+                    </div>
+
+                    <!-- Right Form Fields -->
+                    <div class="basic-info-fields-col">
+                        <div class="basic-info-field-block">
+                            <label class="basic-info-label">카페 주소</label>
+                            <div class="basic-info-readonly-box" id="basic-info-cafe-url">https://cafe.eduver.com/cafe</div>
+                        </div>
+
+                        <div class="basic-info-field-block">
+                            <label class="basic-info-label" for="basic-info-cafe-name">PC 카페 이름 <span class="req-star">*</span></label>
+                            <input type="text" id="basic-info-cafe-name" class="basic-info-text-input" placeholder="카페 이름을 입력해 주세요" maxlength="40">
+                            <ul class="basic-info-notes-list">
+                                <li>· 최근 카페 이름 또는 매니저 변경일을 기준으로 3개월 이후에 수정할 수 있습니다. (단 최초 2회는 변경 가능)</li>
+                                <li id="basic-info-last-modified">· 최근 설정일 없음</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="mm-bottom-footer" style="margin-top: 48px;">
+                    <button type="button" class="mm-btn-cancel" onclick="closeCafeBoardManageModalDirect()">취소</button>
+                    <button type="button" class="mm-btn-save" onclick="saveCafeBasicInfoDirect()">저장하기</button>
+                </div>
+            </div>
+
+            <!-- TAB 2: 메뉴 관리 -->
+            <div id="admin-panel-menu-manage" style="display: none;">
+                <!-- Top Header Bar -->
+                <div class="mm-top-header">
+                    <div class="mm-top-left">
+                        <h2 class="mm-page-title">메뉴 관리</h2>
+                        <button type="button" class="mm-btn-sub-top">상단메뉴 설정하기</button>
+                        <i class="fa-regular fa-circle-question mm-help-circle" title="메뉴 관리 도움말"></i>
+                    </div>
+                    <div class="mm-top-right">
+                        <button type="button" class="mm-btn-cancel" onclick="closeCafeBoardManageModalDirect()">취소</button>
+                        <button type="button" class="mm-btn-save" onclick="saveCafeBoardManageDirect()">저장하기</button>
+                    </div>
+                </div>
+
+            <!-- 3-Column Workspace (Left Palette | + Button | Center Tree & Right Settings) -->
+            <div class="mm-workspace-grid">
+                <!-- 1. Left Menu Palette -->
+                <div class="mm-left-palette">
+                    <div class="mm-palette-group">
+                        <div class="mm-palette-group-title">기본메뉴</div>
+                        <ul class="mm-palette-list">
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('hot', '인기글', this)" ondblclick="addMenuFromPaletteDirect('hot', '인기글')"><i class="fa-solid fa-fire-flame-curved"></i><span>인기글</span></li>
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('tag', '카페태그', this)" ondblclick="addMenuFromPaletteDirect('tag', '카페태그')"><i class="fa-solid fa-tag"></i><span>카페태그</span></li>
+                            <li class="mm-palette-item disabled"><i class="fa-regular fa-calendar"></i><span>카페 캘린더</span></li>
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('bookshelf', '카페북 책꽂이', this)" ondblclick="addMenuFromPaletteDirect('bookshelf', '카페북 책꽂이')"><i class="fa-solid fa-book"></i><span>카페북 책꽂이</span></li>
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('knowledge', '카페지식활동', this)" ondblclick="addMenuFromPaletteDirect('knowledge', '카페지식활동')"><i class="fa-solid fa-graduation-cap"></i><span>카페지식활동</span></li>
+                        </ul>
+                    </div>
+
+                    <div class="mm-palette-group">
+                        <div class="mm-palette-group-title">일반메뉴</div>
+                        <ul class="mm-palette-list">
+                            <li class="mm-palette-item selected" onclick="selectPaletteItemDirect('board', '통합게시판', this)" ondblclick="addMenuFromPaletteDirect('board', '통합게시판')"><i class="fa-regular fa-file-lines"></i><span>통합게시판</span></li>
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('product', '상품등록게시판', this)" ondblclick="addMenuFromPaletteDirect('product', '상품등록게시판')"><i class="fa-solid fa-gift"></i><span>상품등록게시판</span></li>
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('staff', '스탭게시판', this)" ondblclick="addMenuFromPaletteDirect('staff', '스탭게시판')"><i class="fa-regular fa-id-badge"></i><span>스탭게시판</span></li>
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('memo', '메모게시판', this)" ondblclick="addMenuFromPaletteDirect('memo', '메모게시판')"><i class="fa-regular fa-note-sticky"></i><span>메모게시판</span></li>
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('attendance', '출석부', this)" ondblclick="addMenuFromPaletteDirect('attendance', '출석부')"><i class="fa-regular fa-calendar-check"></i><span>출석부</span></li>
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('cafebook', '카페북', this)" ondblclick="addMenuFromPaletteDirect('cafebook', '카페북')"><i class="fa-solid fa-book-open"></i><span>카페북</span></li>
+                        </ul>
+                    </div>
+
+                    <div class="mm-palette-group">
+                        <div class="mm-palette-group-title">관리도구</div>
+                        <ul class="mm-palette-list">
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('group', '그룹 제목', this)" ondblclick="addMenuFromPaletteDirect('group', '그룹 제목')"><i class="fa-regular fa-folder"></i><span>그룹 제목</span></li>
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('divider', '구분선', this)" ondblclick="addMenuFromPaletteDirect('divider', '구분선')"><i class="fa-solid fa-ellipsis"></i><span>구분선</span></li>
+                            <li class="mm-palette-item" onclick="selectPaletteItemDirect('link', '링크', this)" ondblclick="addMenuFromPaletteDirect('link', '링크')"><i class="fa-solid fa-arrow-up-right-from-square"></i><span>링크</span></li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- 2. Middle [+] Add Bridge Button -->
+                <div class="mm-add-bridge">
+                    <button type="button" class="mm-btn-plus-bridge" onclick="addMenuFromPaletteDirect()" title="선택한 메뉴 추가">
+                        <i class="fa-solid fa-plus"></i>
+                    </button>
+                </div>
+
+                <!-- 3. Main Box (Center Tree List + Right Settings Panel) -->
+                <div class="mm-main-box">
+                    <!-- Center Active Menu Tree -->
+                    <div class="mm-center-column">
+                        <div class="mm-toolbar-strip">
+                            <button type="button" class="mm-tool-btn" onclick="moveSelectedMenuDirect('bottom')" title="맨 아래로"><i class="fa-solid fa-angles-down"></i></button>
+                            <button type="button" class="mm-tool-btn" onclick="moveSelectedMenuDirect('down')" title="아래로"><i class="fa-solid fa-angle-down"></i></button>
+                            <button type="button" class="mm-tool-btn" onclick="moveSelectedMenuDirect('up')" title="위로"><i class="fa-solid fa-angle-up"></i></button>
+                            <button type="button" class="mm-tool-btn" onclick="moveSelectedMenuDirect('top')" title="맨 위로"><i class="fa-solid fa-angles-up"></i></button>
+                            <button type="button" class="mm-tool-btn" onclick="toggleIndentSelectedMenuDirect()"><span style="font-weight:700;">ㄴ</span>들여쓰기</button>
+                            <button type="button" class="mm-tool-btn"><i class="fa-solid fa-angle-right"></i>그룹접기</button>
+                            <button type="button" class="mm-tool-btn" onclick="deleteSelectedMenuDirect()"><i class="fa-solid fa-minus"></i>삭제</button>
+                        </div>
+
+                        <div class="mm-center-tree-list" id="mm-center-tree-list">
+                            <!-- Populated dynamically -->
+                        </div>
+
+                        <div class="mm-toolbar-strip bottom">
+                            <button type="button" class="mm-tool-btn" onclick="moveSelectedMenuDirect('bottom')" title="맨 아래로"><i class="fa-solid fa-angles-down"></i></button>
+                            <button type="button" class="mm-tool-btn" onclick="moveSelectedMenuDirect('down')" title="아래로"><i class="fa-solid fa-angle-down"></i></button>
+                            <button type="button" class="mm-tool-btn" onclick="moveSelectedMenuDirect('up')" title="위로"><i class="fa-solid fa-angle-up"></i></button>
+                            <button type="button" class="mm-tool-btn" onclick="moveSelectedMenuDirect('top')" title="맨 위로"><i class="fa-solid fa-angles-up"></i></button>
+                            <button type="button" class="mm-tool-btn" onclick="toggleIndentSelectedMenuDirect()"><span style="font-weight:700;">ㄴ</span>들여쓰기</button>
+                            <button type="button" class="mm-tool-btn"><i class="fa-solid fa-angle-right"></i>그룹접기</button>
+                            <button type="button" class="mm-tool-btn" onclick="deleteSelectedMenuDirect()"><i class="fa-solid fa-minus"></i>삭제</button>
+                        </div>
+                    </div>
+
+                    <!-- Right Settings / Guide Panel -->
+                    <div class="mm-right-column">
+                        <div id="mm-right-guide-box">
+                            <div class="mm-guide-title">메뉴 설정 안내</div>
+                            <ul class="mm-guide-list">
+                                <li>· 드래그 앤 드롭으로 게시판 순서를 변경할 수 있습니다.</li>
+                                <li>· 왼쪽 메뉴에서 추가할 게시판을 선택한 후 가운데 <strong>[+]</strong> 버튼을 누르거나 더블클릭하면 메뉴가 추가됩니다.</li>
+                                <li>· 가운데 목록에서 게시판을 클릭하면 오른쪽에서 <strong>메뉴명(이름 변경) 및 권한 설정</strong>을 편집할 수 있습니다.</li>
+                                <li class="mm-guide-green">· 메뉴를 편집한 후에 저장하기 버튼을 꼭 클릭해야 변경된 내용이 메뉴에 반영됩니다.</li>
+                            </ul>
+                        </div>
+
+                        <div id="mm-right-edit-form" style="display: none;">
+                            <!-- Populated dynamically when a menu item is selected -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+                <!-- Bottom Save / Cancel Row -->
+                <div class="mm-bottom-footer">
+                    <button type="button" class="mm-btn-cancel" onclick="closeCafeBoardManageModalDirect()">취소</button>
+                    <button type="button" class="mm-btn-save" onclick="saveCafeBoardManageDirect()">저장하기</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Cafe Secede Modal (Matching User Screenshot) -->
@@ -2887,6 +4739,49 @@
                 <div class="secede-btn-row">
                     <button type="button" class="btn-secede-confirm" onclick="confirmCafeSecede()">확인</button>
                     <button type="button" class="btn-secede-cancel" onclick="closeCafeSecedeModal()">취소</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Cafe Post Move Modal (게시글 이동 - Matching User Screenshot) -->
+    <div class="cafe-secede-modal-overlay" id="cafe-post-move-modal" onclick="if(event.target === this) closeCafePostMoveModalDirect();">
+        <div class="cafe-secede-modal-window" style="width: 480px;">
+            <div class="secede-modal-header" style="background: #888888;">
+                <div style="display: flex; align-items: center; gap: 6px;">
+                    <i class="fa-solid fa-caret-right" style="color: #c8f560; font-size: 11px;"></i>
+                    <span>게시글 이동</span>
+                </div>
+                <button type="button" onclick="closeCafePostMoveModalDirect()" style="background: none; border: none; color: #fff; font-size: 18px; cursor: pointer; line-height: 1;">&times;</button>
+            </div>
+            <div class="secede-modal-body" style="padding: 26px 24px 22px 24px;">
+                <div class="post-move-guide-text">
+                    해당 게시글에 달린 답글도 함께 이동하고<br>
+                    게시글과 동일한 말머리로 변경됩니다.
+                </div>
+
+                <div class="post-move-form-box">
+                    <div class="post-move-row">
+                        <span class="post-move-label">게시판선택</span>
+                        <select id="move-target-board-select" class="post-move-select">
+                            <option value="자유게시판">자유게시판</option>
+                        </select>
+                    </div>
+                    <div class="post-move-row">
+                        <span class="post-move-label muted">말머리선택</span>
+                        <select id="move-target-prefix-select" class="post-move-select">
+                            <option value="">선택안함 (기존유지)</option>
+                            <option value="잡담">잡담</option>
+                            <option value="질문">질문</option>
+                            <option value="정보">정보</option>
+                            <option value="후기">후기</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="secede-btn-row">
+                    <button type="button" class="btn-secede-confirm" onclick="confirmCafePostMoveDirect()">확인</button>
+                    <button type="button" class="btn-secede-cancel" onclick="closeCafePostMoveModalDirect()">취소</button>
                 </div>
             </div>
         </div>

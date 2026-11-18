@@ -131,40 +131,141 @@ document.addEventListener("DOMContentLoaded", () => {
     if (cafeTitleMain) cafeTitleMain.textContent = currentCafe.name;
     if (cafeUrlSub) cafeUrlSub.textContent = `https://cafe.eduver.com/${currentCafe.urlSlug || currentCafe.id.replace("cafe_", "")}`;
 
+    const heroBrandArea = document.querySelector(".hero-brand-area");
+    if (heroBrandArea) {
+        heroBrandArea.style.cursor = "pointer";
+        heroBrandArea.addEventListener("click", () => {
+            currentActiveBoard = "all";
+            currentBoardPage = 1;
+            window.currentSelectedBoardType = "all";
+            window.currentBoardPage = 1;
+            document.querySelectorAll(".sidebar-menu-card .board-item").forEach(b => {
+                if (b.getAttribute("data-board") === "all") b.classList.add("active");
+                else b.classList.remove("active");
+            });
+            showBoardList();
+        });
+    }
+
     // 7. Render Posts in Board Table
     const cafePostTbody = document.getElementById("cafe-post-tbody");
     const boardMainTitle = document.getElementById("board-main-title");
     const checkAllPosts = document.getElementById("check-all-posts");
     const bottomCheckAll = document.getElementById("bottom-check-all");
     const hideNoticeCheck = document.getElementById("hide-notice-check");
-    let currentActiveBoard = "all"; // 'all' | 'hot' | 'free'
+    const selectPageSizeEl = document.getElementById("select-page-size");
+    let currentActiveBoard = "all"; // 'all' | 'hot' | custom board name
+    let currentBoardPage = 1;
+
+    window.setCurrentActiveBoardFromDirect = function(boardType, pageNum) {
+        if (currentActiveBoard !== (boardType || "all") && !pageNum) {
+            currentBoardPage = 1;
+            window.currentBoardPage = 1;
+        } else if (pageNum) {
+            currentBoardPage = pageNum;
+            window.currentBoardPage = pageNum;
+        }
+        currentActiveBoard = boardType || "all";
+    };
+    window.setBoardPageInDetailJs = function(pageNum, pageSizeVal) {
+        currentBoardPage = pageNum || 1;
+        window.currentBoardPage = currentBoardPage;
+        if (pageSizeVal && selectPageSizeEl) {
+            selectPageSizeEl.value = String(pageSizeVal);
+        }
+        renderPostTable();
+        window.scrollTo({ top: 120, behavior: "smooth" });
+    };
+    window.syncBoardsToCafeDetailJs = function(finalBoards, renameMap) {
+        currentCafe.boards = finalBoards.slice();
+        currentCafe.board = finalBoards.slice();
+        if (renameMap && Array.isArray(currentCafe.posts)) {
+            currentCafe.posts.forEach(p => {
+                const oldB = p.board || "자유게시판";
+                if (renameMap[oldB]) {
+                    p.board = renameMap[oldB];
+                }
+            });
+        }
+        safeSaveCafesData(cafes);
+    };
+    window.syncMovedPostsToCafeDetailJs = function(movedIds, targetBoard, targetPrefix) {
+        if (!Array.isArray(currentCafe.posts)) return;
+        currentCafe.posts.forEach(p => {
+            if (movedIds.includes(String(p.id))) {
+                p.board = targetBoard;
+                if (targetPrefix) {
+                    const cleanT = (p.title || "").replace(/^\[(잡담|질문|정보|후기)\]\s*/, "");
+                    p.title = `[${targetPrefix}] ${cleanT}`;
+                }
+            }
+        });
+        window.currentCafeRecord = currentCafe;
+        safeSaveCafesData(cafes);
+        renderPostTable();
+    };
+    window.syncBasicInfoToCafeDetailJs = function(newName, newIcon) {
+        if (newName) currentCafe.name = newName;
+        if (newIcon) currentCafe.icon = newIcon;
+        if (Array.isArray(currentCafe.posts) && newName) {
+            currentCafe.posts.forEach(p => { p.cafeName = newName; });
+        }
+        window.currentCafeRecord = currentCafe;
+        const idx = cafes.findIndex(c => String(c.id) === String(currentCafe.id));
+        if (idx !== -1) cafes[idx] = currentCafe;
+        safeSaveCafesData(cafes);
+        updateCafeHeaders();
+    };
 
     function renderPostTable() {
         if (!cafePostTbody) return;
 
         let postList = currentCafe.posts || [];
+        const cafeBoards = typeof window.getCafeBoardsDirect === "function"
+            ? window.getCafeBoardsDirect(currentCafe)
+            : (Array.isArray(currentCafe.boards) && currentCafe.boards.length > 0 ? currentCafe.boards : ["자유게시판"]);
+        const defaultBoardName = cafeBoards[0] || "자유게시판";
         
         // Hide notice filter
         if (hideNoticeCheck && hideNoticeCheck.checked) {
             postList = postList.filter(p => !p.isNotice);
         }
 
-        if (currentActiveBoard === "free") {
-            postList = postList.filter(p => !p.board || p.board === "자유게시판");
-            if (welcomeHeroCard) welcomeHeroCard.style.display = "none";
-            if (boardMainTitle) boardMainTitle.textContent = "자유게시판";
+        if (currentActiveBoard === "all" || !currentActiveBoard) {
+            if (welcomeHeroCard) welcomeHeroCard.style.display = "block";
+            if (boardMainTitle) boardMainTitle.textContent = "전체글보기";
         } else if (currentActiveBoard === "hot") {
             postList = postList.filter(p => (p.views || 0) > 10 || (Array.isArray(p.comments) ? p.comments.length : 0) > 0);
             if (welcomeHeroCard) welcomeHeroCard.style.display = "none";
             if (boardMainTitle) boardMainTitle.textContent = "인기글";
         } else {
-            if (welcomeHeroCard) welcomeHeroCard.style.display = "block";
-            if (boardMainTitle) boardMainTitle.textContent = "전체글보기";
+            const targetBoardName = currentActiveBoard === "free" ? defaultBoardName : currentActiveBoard;
+            postList = postList.filter(p => {
+                if (targetBoardName === defaultBoardName) {
+                    return !p.board || p.board === targetBoardName || p.board === "자유게시판";
+                }
+                return p.board === targetBoardName;
+            });
+            if (welcomeHeroCard) welcomeHeroCard.style.display = "none";
+            if (boardMainTitle) boardMainTitle.textContent = targetBoardName;
         }
 
         if (sidebarTotalPosts) sidebarTotalPosts.textContent = (currentCafe.posts || []).length;
 
-        if (postList.length === 0) {
+        const pageSize = selectPageSizeEl ? (parseInt(selectPageSizeEl.value, 10) || 15) : (window.currentBoardPageSize || 15);
+        window.currentBoardPageSize = pageSize;
+        const totalFilteredCount = postList.length;
+        const totalPages = Math.max(1, Math.ceil(totalFilteredCount / pageSize));
+        if (currentBoardPage > totalPages) {
+            currentBoardPage = totalPages;
+        }
+        window.currentBoardPage = currentBoardPage;
+
+        if (typeof window.renderBoardPaginationRowDirect === "function") {
+            window.renderBoardPaginationRowDirect(totalFilteredCount, pageSize, currentBoardPage);
+        }
+
+        if (totalFilteredCount === 0) {
             cafePostTbody.innerHTML = `
                 <tr>
                     <td colspan="7" style="text-align: center; padding: 40px; color: #888;">
@@ -175,14 +276,18 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        const startIndex = (currentBoardPage - 1) * pageSize;
+        const pagedPostList = postList.slice(startIndex, startIndex + pageSize);
+
         cafePostTbody.innerHTML = "";
-        postList.forEach((post, index) => {
+        pagedPostList.forEach((post, index) => {
             const tr = document.createElement("tr");
             if (post.isNotice) tr.className = "notice-tr";
 
+            const globalIdx = startIndex + index;
             const numOrBadge = post.isNotice 
                 ? `<span class="badge-table-notice">공지</span>` 
-                : (postList.length - index);
+                : (totalFilteredCount - globalIdx);
 
             const postTime = (post.time && typeof post.time === 'string') 
                 ? (post.time.includes(" ") ? post.time.split(" ")[0] : post.time)
@@ -291,6 +396,14 @@ document.addEventListener("DOMContentLoaded", () => {
                         try { currentCafe.joinedMembers = JSON.parse(item.joinedMembers); } catch(e) { currentCafe.joinedMembers = [item.joinedMembers]; }
                     }
                 }
+                let rawBoards = item.board || item.boards;
+                if (typeof rawBoards === "string") {
+                    try { rawBoards = JSON.parse(rawBoards); } catch (e) {}
+                }
+                if (Array.isArray(rawBoards) && rawBoards.length > 0) {
+                    currentCafe.boards = rawBoards;
+                    currentCafe.board = rawBoards;
+                }
                 
                 // Fetch Posts from cafe_posts collection
                 try {
@@ -338,6 +451,9 @@ document.addEventListener("DOMContentLoaded", () => {
             console.log("PocketBase cafe sync error:", e);
         } finally {
             updateCafeHeaders();
+            if (typeof window.renderCafeSidebarBoardsDirect === "function") {
+                window.renderCafeSidebarBoardsDirect();
+            }
             renderPostTable();
             if (initialPostId) {
                 showPostDetail(initialPostId);
@@ -375,6 +491,13 @@ document.addEventListener("DOMContentLoaded", () => {
 
     async function syncManagerProfileAvatar(managerName) {
         if (!cafeProfileAvatar) return;
+
+        // 0. If cafe has a custom icon set, display it with top priority
+        if (currentCafe && currentCafe.icon && currentCafe.icon !== "default-avatar.svg") {
+            cafeProfileAvatar.src = currentCafe.icon;
+            return;
+        }
+
         const targetMgr = (managerName || "").trim();
         if (!targetMgr) return;
 
@@ -611,6 +734,8 @@ document.addEventListener("DOMContentLoaded", () => {
             postTopbarLeft.style.display = isMyPost ? "flex" : "none";
         }
 
+        const cafeMenuManageView = document.getElementById("cafe-menu-manage-view");
+        if (cafeMenuManageView) cafeMenuManageView.style.display = "none";
         if (cafeLayoutGrid) cafeLayoutGrid.style.display = "grid";
         if (cafeWriteFullView) cafeWriteFullView.style.display = "none";
         if (cafeJoinView) cafeJoinView.style.display = "none";
@@ -625,6 +750,8 @@ document.addEventListener("DOMContentLoaded", () => {
 
     function showBoardList() {
         currentViewingPostId = null;
+        const cafeMenuManageView = document.getElementById("cafe-menu-manage-view");
+        if (cafeMenuManageView) cafeMenuManageView.style.display = "none";
         if (cafeLayoutGrid) cafeLayoutGrid.style.display = "grid";
         if (cafeWriteFullView) cafeWriteFullView.style.display = "none";
         if (cafeJoinView) cafeJoinView.style.display = "none";
@@ -694,6 +821,10 @@ document.addEventListener("DOMContentLoaded", () => {
             return;
         }
 
+        if (typeof window.renderCafeWriteBoardsSelectDirect === "function") {
+            window.renderCafeWriteBoardsSelectDirect();
+        }
+
         currentEditingPostId = null;
         window.currentEditingPostId = null;
         window.attachedCafeFiles = [];
@@ -734,6 +865,10 @@ document.addEventListener("DOMContentLoaded", () => {
         const post = (currentCafe.posts || []).find(p => p.id === targetPostId)
             || (window.currentCafeRecord && Array.isArray(window.currentCafeRecord.posts) ? window.currentCafeRecord.posts.find(p => p.id === targetPostId) : null);
         if (!post) return;
+
+        if (typeof window.renderCafeWriteBoardsSelectDirect === "function") {
+            window.renderCafeWriteBoardsSelectDirect(post.board);
+        }
 
         currentEditingPostId = post.id;
         window.currentEditingPostId = post.id;
@@ -1087,7 +1222,18 @@ document.addEventListener("DOMContentLoaded", () => {
     window.submitComment = window.submitCommentDirect;
 
     if (hideNoticeCheck) {
-        hideNoticeCheck.addEventListener("change", renderPostTable);
+        hideNoticeCheck.addEventListener("change", () => {
+            currentBoardPage = 1;
+            window.currentBoardPage = 1;
+            renderPostTable();
+        });
+    }
+    if (selectPageSizeEl) {
+        selectPageSizeEl.addEventListener("change", () => {
+            currentBoardPage = 1;
+            window.currentBoardPage = 1;
+            renderPostTable();
+        });
     }
 
     renderPostTable();
@@ -1097,15 +1243,24 @@ document.addEventListener("DOMContentLoaded", () => {
         showPostDetail(initialPostId);
     }
 
-    // 8. Board Switching Events (Sidebar)
-    document.querySelectorAll(".board-item").forEach(item => {
-        item.addEventListener("click", () => {
-            document.querySelectorAll(".board-item").forEach(b => b.classList.remove("active"));
+    // 8. Board Switching Events (Sidebar - delegated for dynamic boards)
+    const sidebarMenuCard = document.querySelector(".sidebar-menu-card");
+    if (sidebarMenuCard) {
+        sidebarMenuCard.addEventListener("click", (e) => {
+            const item = e.target.closest(".board-item");
+            if (!item) return;
+            document.querySelectorAll(".sidebar-menu-card .board-item").forEach(b => b.classList.remove("active"));
             item.classList.add("active");
-            currentActiveBoard = item.getAttribute("data-board") || "all";
+            const nextBoard = item.getAttribute("data-board") || "all";
+            if (currentActiveBoard !== nextBoard) {
+                currentBoardPage = 1;
+                window.currentBoardPage = 1;
+            }
+            currentActiveBoard = nextBoard;
+            window.currentSelectedBoardType = currentActiveBoard;
             showBoardList();
         });
-    });
+    }
 
     // 9. Delete Posts Functionality (Table Checkbox Delete & Detail View Delete)
     // Batch Delete selected posts from table
